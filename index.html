@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MindfulTrader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        /* Light Mode Colors */
+        --bg: #f8fafc;           /* slate-50 */
+        --surface: #ffffff;      /* white */
+        --surface-highlight: #f1f5f9; /* slate-100 */
+        --text: #0f172a;         /* slate-900 */
+        --text-muted: #64748b;   /* slate-500 */
+        --primary: #3b82f6;      /* blue-500 */
+        --accent: #8b5cf6;       /* violet-500 */
+        --success: #22c55e;      /* green-500 */
+        --danger: #ef4444;       /* red-500 */
+        --border: #e2e8f0;       /* slate-200 */
+      }
+
+      .dark {
+        /* Dark Mode Colors */
+        --bg: #0f1114;
+        --surface: #16191d;
+        --surface-highlight: #1c2127;
+        --text: #e2e8f0;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --accent: #8b5cf6;
+        --success: #22c55e;
+        --danger: #ef4444;
+        --border: #2d3748;
+      }
+
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        transition: background-color 0.3s, color 0.3s;
+      }
+
+      /* Scrollbar Styling */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--surface); 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--text-muted); 
+        border-radius: 4px;
+        opacity: 0.5;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text); 
+      }
+
+      /* Tiptap Editor Styles */
+      .ProseMirror {
+        outline: none;
+        min-height: 150px;
+        color: var(--text);
+        line-height: 1.6;
+      }
+
+      .ProseMirror p.is-editor-empty:first-child::before {
+        color: var(--text-muted);
+        content: attr(data-placeholder);
+        float: left;
+        height: 0;
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      .ProseMirror ul {
+        list-style-type: disc;
+        padding-left: 1.5em;
+        margin: 0.5em 0;
+      }
+
+      .ProseMirror ol {
+        list-style-type: decimal;
+        padding-left: 1.5em;
+        margin: 0.5em 0;
+      }
+
+      .ProseMirror h1 {
+        font-size: 1.5em;
+        font-weight: 700;
+        margin-top: 0.5em;
+        margin-bottom: 0.25em;
+      }
+
+      .ProseMirror h2 {
+        font-size: 1.25em;
+        font-weight: 600;
+        margin-top: 0.5em;
+        margin-bottom: 0.25em;
+      }
+
+      .ProseMirror blockquote {
+        border-left: 3px solid var(--primary);
+        padding-left: 1em;
+        margin-left: 0;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .ProseMirror code {
+        background-color: var(--surface-highlight);
+        padding: 0.2em 0.4em;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.9em;
+      }
+      
+      .ProseMirror a {
+        color: var(--primary);
+        text-decoration: underline;
+        cursor: pointer;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            colors: {
+              background: 'var(--bg)',
+              surface: 'var(--surface)',
+              surfaceHighlight: 'var(--surface-highlight)',
+              primary: 'var(--primary)',
+              accent: 'var(--accent)',
+              success: 'var(--success)',
+              danger: 'var(--danger)',
+              text: 'var(--text)',
+              textMuted: 'var(--text-muted)',
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
+    "clsx": "https://esm.sh/clsx",
+    "@tiptap/core": "https://esm.sh/@tiptap/core?external=react,react-dom",
+    "@tiptap/starter-kit": "https://esm.sh/@tiptap/starter-kit?external=react,react-dom",
+    "@tiptap/react": "https://esm.sh/@tiptap/react?external=react,react-dom",
+    "@tiptap/extension-link": "https://esm.sh/@tiptap/extension-link?external=react,react-dom",
+    "@tiptap/extension-placeholder": "https://esm.sh/@tiptap/extension-placeholder?external=react,react-dom",
+    "@tiptap/pm/state": "https://esm.sh/@tiptap/pm/state",
+    "@tiptap/pm/view": "https://esm.sh/@tiptap/pm/view",
+    "@tiptap/pm/model": "https://esm.sh/@tiptap/pm/model",
+    "@tiptap/pm/transform": "https://esm.sh/@tiptap/pm/transform",
+    "@tiptap/pm/commands": "https://esm.sh/@tiptap/pm/commands",
+    "@tiptap/pm/history": "https://esm.sh/@tiptap/pm/history",
+    "@tiptap/pm/dropcursor": "https://esm.sh/@tiptap/pm/dropcursor",
+    "@tiptap/pm/gapcursor": "https://esm.sh/@tiptap/pm/gapcursor"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
