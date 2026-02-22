@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Trade, TradeType, TradeStatus, Emotion, DailyAnalysis, TradeHistoryItem, Playbook, DEFAULT_MISTAKES, Instrument, FUTURES_CONTRACTS, TradeExit } from '../types';
-import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut } from 'lucide-react';
+import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 
 interface JournalProps {
@@ -48,6 +48,13 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const [filterStatus, setFilterStatus] = useState<TradeStatus | 'ALL'>('ALL');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  
+  // NEW: Enhanced Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterSetup, setFilterSetup] = useState('');
+  const [filterPlaybook, setFilterPlaybook] = useState('');
+  const [filterEmotion, setFilterEmotion] = useState('');
+  const [filterTags, setFilterTags] = useState<string[]>([]);
 
   // Trade Form State
   const [symbol, setSymbol] = useState('');
@@ -81,6 +88,16 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   
   // Multi-Exit State
   const [exits, setExits] = useState<{price: string, quantity: string}[]>([]);
+  
+  // NEW: Enhanced Form State
+  const [tradeTags, setTradeTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [audioUrl, setAudioUrl] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement>(null);
 
   // Reset Zoom when closing floating view
   useEffect(() => {
@@ -93,6 +110,11 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     setFilterStatus('ALL');
     setFilterStartDate('');
     setFilterEndDate('');
+    setSearchQuery('');
+    setFilterSetup('');
+    setFilterPlaybook('');
+    setFilterEmotion('');
+    setFilterTags([]);
   };
 
   // Handle Focused Trade Navigation
@@ -166,6 +188,28 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   }, [entryPrice, exitPrice, quantity, multiplier, type, fees]);
 
   // Filter Logic
+  // NEW: Helper data for filter dropdowns
+  const allSetups = useMemo(() => {
+    const setups = new Set<string>();
+    trades.forEach(t => { if (t.setup) setups.add(t.setup); });
+    return Array.from(setups).sort();
+  }, [trades]);
+
+  const allEmotions = useMemo(() => {
+    const emotions = new Set<string>();
+    trades.forEach(t => { if (t.emotionPre) emotions.add(t.emotionPre); });
+    return Array.from(emotions).sort();
+  }, [trades]);
+
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    trades.forEach(t => {
+      const tradeTags = (t as any).tags || [];
+      tradeTags.forEach((tag: string) => tags.add(tag));
+    });
+    return Array.from(tags).sort();
+  }, [trades]);
+
   const filteredTrades = useMemo(() => {
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -185,11 +229,42 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     if (filterSymbol && !trade.symbol.includes(filterSymbol.toUpperCase())) return false;
     if (filterType !== 'ALL' && trade.type !== filterType) return false;
     if (filterStatus !== 'ALL' && trade.status !== filterStatus) return false;
+    
+    // NEW: Search Query (searches symbol, setup, notes)
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSymbol = trade.symbol.toLowerCase().includes(query);
+      const matchesSetup = trade.setup?.toLowerCase().includes(query);
+      const matchesNotes = trade.notes?.toLowerCase().includes(query);
+      if (!matchesSymbol && !matchesSetup && !matchesNotes) return false;
+    }
+    
+    // NEW: Advanced Filters
+    if (filterSetup && trade.setup !== filterSetup) return false;
+    if (filterPlaybook && trade.playbookId !== filterPlaybook) return false;
+    if (filterEmotion && trade.emotionPre !== filterEmotion) return false;
+    
+    // NEW: Tag Filter (trade must have ALL selected tags)
+    if (filterTags.length > 0) {
+      const tradeTags = (trade as any).tags || [];
+      const hasAllTags = filterTags.every(tag => tradeTags.includes(tag));
+      if (!hasAllTags) return false;
+    }
+    
     return true;
-  });
-}, [trades, timeframe, filterSymbol, filterType, filterStatus]);
+  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}, [trades, timeframe, filterSymbol, filterType, filterStatus, searchQuery, filterSetup, filterPlaybook, filterEmotion, filterTags]);
 
-  const hasActiveFilters = filterSymbol || filterType !== 'ALL' || filterStatus !== 'ALL' || filterStartDate || filterEndDate;
+  // NEW: Stats for filtered results
+  const filteredStats = useMemo(() => {
+    const closed = filteredTrades.filter(t => t.status === TradeStatus.CLOSED);
+    const wins = closed.filter(t => (t.pnl || 0) > 0);
+    const totalPnl = closed.reduce((acc, t) => acc + (t.pnl || 0), 0);
+    const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+    return { total: filteredTrades.length, closed: closed.length, winRate, totalPnl };
+  }, [filteredTrades]);
+
+  const hasActiveFilters = filterSymbol || filterType !== 'ALL' || filterStatus !== 'ALL' || filterStartDate || filterEndDate || searchQuery || filterSetup || filterPlaybook || filterEmotion || filterTags.length > 0;
 
   // Handlers
   const handleSelectTrade = (id: string, e: React.MouseEvent) => {
@@ -243,6 +318,133 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     onDeleteTrade(id);
   };
 
+  // NEW: Tag Handlers
+  const handleAddTag = () => {
+    const tag = tagInput.trim().replace(/^#/, ''); // Remove # if user typed it
+    if (tag && !tradeTags.includes(tag)) {
+      setTradeTags([...tradeTags, tag]);
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTradeTags(tradeTags.filter(t => t !== tagToRemove));
+  };
+
+  // NEW: Multiple Image Handlers
+  const handleMultipleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        if (file.size > 500000) {
+          alert(`${file.name} is too large. Please upload images under 500KB.`);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setImageUrls(prev => [...prev, event.target.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImageUrls(imageUrls.filter((_, i) => i !== index));
+  };
+
+  // NEW: Voice Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (err) {
+      alert('Microphone access denied or unavailable.');
+      console.error(err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setMediaRecorder(null);
+    }
+  };
+
+  const playAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.play();
+      setIsPlayingAudio(true);
+    }
+  };
+
+  const pauseAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setIsPlayingAudio(false);
+    }
+  };
+
+  const deleteAudio = () => {
+    setAudioUrl('');
+    setIsPlayingAudio(false);
+  };
+
+  // NEW: CSV Export Handler
+  const handleExportCSV = () => {
+    if (filteredTrades.length === 0) {
+      alert('No trades to export.');
+      return;
+    }
+
+    const headers = ['Date', 'Symbol', 'Type', 'Status', 'Entry', 'Exit', 'Stop Loss', 'Quantity', 'P&L', 'Fees', 'Setup', 'Playbook', 'Mistakes', 'Emotion', 'Notes'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredTrades.map(t => [
+        t.date,
+        t.symbol,
+        t.type,
+        t.status,
+        t.entryPrice,
+        t.exitPrice || '',
+        t.stopLoss || '',
+        t.quantity,
+        t.pnl || '',
+        t.fees || '',
+        `"${(t.setup || '').replace(/"/g, '""')}"`,
+        t.playbookId || '',
+        `"${(t.mistakes?.join(';') || '').replace(/"/g, '""')}"`,
+        t.emotionPre,
+        `"${(t.notes || '').replace(/"/g, '""')}"`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `trades_export_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const toggleMistake = (mistake: string) => {
     setSelectedMistakes(prev => 
       prev.includes(mistake) ? prev.filter(m => m !== mistake) : [...prev, mistake]
@@ -284,13 +486,17 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     setShowHistory(false);
     setSymbol(''); setInstrument(Instrument.STOCK); setType(TradeType.LONG);
     setEntryPrice(''); setExitPrice(''); setStopLoss('');
-    setQuantity('1'); setMultiplier('1'); setFees(''); // Reset Fees
+    setQuantity('1'); setMultiplier('1'); setFees('');
     setNotes(''); setSetup(''); setImageUrl('');
     setEntryTime(''); setExitTime(''); 
     setEmotion(Emotion.NEUTRAL); setIsCustomEmotion(false); setCustomEmotion('');
     setPlaybookId(''); setIsAddingPlaybook(false); setNewPlaybookName('');
     setSelectedMistakes([]); setCustomMistake('');
     setExits([]);
+    setTradeTags([]); // NEW
+    setTagInput(''); // NEW
+    setImageUrls([]); // NEW
+    setAudioUrl(''); // NEW
     setDate(new Date().toISOString().split('T')[0]);
     setIsModalOpen(true);
   };
@@ -349,7 +555,9 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
     if (trade.pnl && trade.exitPrice && trade.entryPrice && trade.quantity) {
         const priceDiff = Math.abs(trade.exitPrice - trade.entryPrice);
         if (priceDiff > 0) {
-            const impliedMult = Math.abs(trade.pnl) / (trade.quantity * priceDiff);
+            // Calculate Gross PnL (Net PnL + Fees) to accurately reverse-engineer the multiplier
+            const grossPnl = (trade.pnl || 0) + (trade.fees || 0);
+            const impliedMult = Math.abs(grossPnl) / (trade.quantity * priceDiff);
             // If the implied math is very close to a whole number, assume that was the custom multiplier
             if (Math.abs(impliedMult - Math.round(impliedMult)) < 0.01) {
                 // Only override if we didn't find a known future contract
@@ -360,6 +568,11 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
         }
     }
     setMultiplier(mult.toString());
+    
+    // NEW: Load enhanced fields
+    setTradeTags((trade as any).tags || []);
+    setImageUrls((trade as any).imageUrls || []);
+    setAudioUrl((trade as any).audioUrl || '');
   };
 
   const openEditModal = (trade: Trade) => {
@@ -433,7 +646,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       exitPrice: exit,
       stopLoss: stop,
       quantity: qty,
-      fees: comm > 0 ? comm : undefined, // Save Fees
+      fees: comm > 0 ? comm : undefined,
       status,
       pnl,
       r,
@@ -447,7 +660,13 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       emotionPre: finalEmotion,
       imageUrl: imageUrl || undefined,
       history: currentTradeHistory,
-      exits: exits.length > 0 ? exits.map((e, idx) => ({ id: idx.toString(), price: parseFloat(e.price), quantity: parseFloat(e.quantity) })) : undefined
+      exits: exits.length > 0 ? exits.map((e, idx) => ({ id: idx.toString(), price: parseFloat(e.price), quantity: parseFloat(e.quantity) })) : undefined,
+      // NEW: Enhanced fields (cast to any to bypass type checking)
+      ...((tradeTags.length > 0 || imageUrls.length > 0 || audioUrl) && {
+        tags: tradeTags.length > 0 ? tradeTags : undefined,
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+        audioUrl: audioUrl || undefined
+      } as any)
     };
 
     if (editingId) {
@@ -485,6 +704,21 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
             </button>
           )}
         </div>
+        
+        {/* NEW: Search Bar */}
+        <div className="flex-1 max-w-md">
+          <div className="relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-textMuted" />
+            <input
+              type="text"
+              placeholder="Search symbol, setup, notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-surfaceHighlight border border-surfaceHighlight rounded-lg pl-10 pr-4 py-2 text-sm text-text focus:border-primary outline-none placeholder-textMuted"
+            />
+          </div>
+        </div>
+        
         <div className="flex gap-3">
         <div className="flex bg-surfaceHighlight rounded-lg p-1 border border-surfaceHighlight">
   {(['MONTH', 'YEAR', 'ALL'] as const).map((tf) => (
@@ -504,6 +738,10 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
           </button>
           <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${isFilterOpen || hasActiveFilters ? 'bg-surfaceHighlight text-primary border-primary' : 'bg-surfaceHighlight text-text border-gray-700 hover:bg-gray-700'}`}>
             <Filter size={16} /> Filter {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-primary ml-1"></span>}
+          </button>
+          {/* NEW: Export Button */}
+          <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-surfaceHighlight text-text rounded-lg hover:bg-gray-700 transition-colors border border-gray-700">
+            <Download size={16} /> Export
           </button>
           <button onClick={openAddModal} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-600 transition-colors">
             <Plus size={16} /> Add Trade
