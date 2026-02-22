@@ -81,6 +81,15 @@ export interface Trade {
   exits?: TradeExit[];
 }
 
+export interface Trade {
+  // ... existing fields ...
+  
+  // NEW fields to add:
+  tags?: string[];
+  imageUrls?: string[];
+  audioUrl?: string;
+}
+
 // New Types for Notebook
 export type NoteCategory = 'daily' | 'plan' | 'goal' | 'rule' | 'general';
 

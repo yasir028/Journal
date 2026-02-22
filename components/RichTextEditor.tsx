@@ -132,6 +132,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   // Sync external value changes if necessary (e.g. template insertion or switching entries)
   useEffect(() => {
     if (editor && value !== editor.getHTML()) {
+      // Handle empty value (clearing the editor)
+      if (!value) {
+        if (editor.getHTML() !== '<p></p>') {
+          editor.commands.setContent('');
+        }
+        return;
+      }
+
       // Only update if the content is significantly different to avoid cursor jumps
       // A simple check is usually checking if it's empty vs populated
       if (editor.getText() === '' && value) {
