@@ -5,9 +5,10 @@ import { Calendar, Clock, BarChart2, TrendingUp, TrendingDown, Activity, AlertTr
 
 interface AnalyticsProps {
   trades: Trade[];
+  onFilterTrades?: (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => void;
 }
 
-const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
+const Analytics: React.FC<AnalyticsProps> = ({ trades, onFilterTrades }) => {
   const [timeRange, setTimeRange] = useState<'30d' | '90d' | 'YTD' | 'ALL'>('ALL');
 
   // --- FILTERING ---
@@ -521,6 +522,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
                     
                     let bgColor = avgPnl > 0 ? `rgba(34, 197, 94, ${intensity / 100})` : `rgba(239, 68, 68, ${intensity / 100})`;
                     
+                    const isEarly = hour < 11;
+                    const tooltipPosition = isEarly 
+                      ? "top-full mt-2 left-1/2 -translate-x-1/2" 
+                      : "-top-2 left-1/2 -translate-x-1/2 -translate-y-full";
+
                     return (
                       <td 
                         key={day} 
@@ -530,7 +536,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
                         <div className="text-xs font-mono font-bold text-white drop-shadow-lg">
                           {cell.trades}
                         </div>
-                        <div className="absolute hidden group-hover:block bg-surface border border-surfaceHighlight rounded-lg p-3 shadow-xl z-10 -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-40">
+                        <div className={`absolute hidden group-hover:block bg-surface border border-surfaceHighlight rounded-lg p-3 shadow-xl z-50 w-40 ${tooltipPosition}`}>
                           <div className="text-xs space-y-1">
                             <p className="font-bold text-text">{day} {hour}:00</p>
                             <p className="text-textMuted">Trades: {cell.trades}</p>
@@ -633,7 +639,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades }) => {
             </thead>
             <tbody className="divide-y divide-surfaceHighlight/30">
               {setupPerformance.map((setup, idx) => (
-                <tr key={idx} className="hover:bg-surfaceHighlight/20">
+                <tr 
+                  key={idx} 
+                  className="hover:bg-surfaceHighlight/20 cursor-pointer transition-colors"
+                  onClick={() => onFilterTrades && onFilterTrades('setup', setup.setup === 'No Setup' ? '' : setup.setup)}
+                >
                   <td className="px-4 py-3">
                     {idx < 3 ? (
                       <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${

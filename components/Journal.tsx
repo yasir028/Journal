@@ -13,9 +13,16 @@ interface JournalProps {
   onUpdatePlaybooks?: (playbooks: Playbook[]) => void;
   focusedTradeId?: string | null;
   onClearFocus?: () => void;
+  initialFilters?: {
+    symbol?: string;
+    setup?: string;
+    playbookId?: string;
+    emotion?: string;
+    mistake?: string;
+  };
 }
 
-const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus }) => {
+const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters }) => {
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL'>('MONTH');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -55,6 +62,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const [filterPlaybook, setFilterPlaybook] = useState('');
   const [filterEmotion, setFilterEmotion] = useState('');
   const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [filterMistake, setFilterMistake] = useState('');
 
   // Trade Form State
   const [symbol, setSymbol] = useState('');
@@ -115,6 +123,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     setFilterPlaybook('');
     setFilterEmotion('');
     setFilterTags([]);
+    setFilterMistake('');
   };
 
   // Handle Focused Trade Navigation
@@ -138,6 +147,34 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
       if (onClearFocus) onClearFocus();
     }
   }, [focusedTradeId, onClearFocus]);
+
+  // Handle Initial Filters (from Dashboard)
+  useEffect(() => {
+    if (initialFilters) {
+      // Reset all filters first
+      setFilterSymbol('');
+      setFilterType('ALL');
+      setFilterStatus('ALL');
+      setFilterStartDate('');
+      setFilterEndDate('');
+      setSearchQuery('');
+      setFilterSetup('');
+      setFilterPlaybook('');
+      setFilterEmotion('');
+      setFilterTags([]);
+      setFilterMistake('');
+
+      // Apply new filters
+      if (initialFilters.symbol) setFilterSymbol(initialFilters.symbol);
+      if (initialFilters.setup) setFilterSetup(initialFilters.setup);
+      if (initialFilters.playbookId) setFilterPlaybook(initialFilters.playbookId);
+      if (initialFilters.emotion) setFilterEmotion(initialFilters.emotion);
+      if (initialFilters.mistake) setFilterMistake(initialFilters.mistake);
+      
+      // Open filter panel to show user that filters are active
+      setIsFilterOpen(true);
+    }
+  }, [initialFilters]);
 
   // Derived Risk Calculations
   const calculatedRisk = useMemo(() => {
@@ -243,6 +280,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     if (filterSetup && trade.setup !== filterSetup) return false;
     if (filterPlaybook && trade.playbookId !== filterPlaybook) return false;
     if (filterEmotion && trade.emotionPre !== filterEmotion) return false;
+    if (filterMistake && (!trade.mistakes || !trade.mistakes.includes(filterMistake))) return false;
     
     // NEW: Tag Filter (trade must have ALL selected tags)
     if (filterTags.length > 0) {
@@ -253,7 +291,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     
     return true;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}, [trades, timeframe, filterSymbol, filterType, filterStatus, searchQuery, filterSetup, filterPlaybook, filterEmotion, filterTags]);
+}, [trades, timeframe, filterSymbol, filterType, filterStatus, searchQuery, filterSetup, filterPlaybook, filterEmotion, filterTags, filterMistake]);
 
   // NEW: Stats for filtered results
   const filteredStats = useMemo(() => {
@@ -264,7 +302,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     return { total: filteredTrades.length, closed: closed.length, winRate, totalPnl };
   }, [filteredTrades]);
 
-  const hasActiveFilters = filterSymbol || filterType !== 'ALL' || filterStatus !== 'ALL' || filterStartDate || filterEndDate || searchQuery || filterSetup || filterPlaybook || filterEmotion || filterTags.length > 0;
+  const hasActiveFilters = filterSymbol || filterType !== 'ALL' || filterStatus !== 'ALL' || filterStartDate || filterEndDate || searchQuery || filterSetup || filterPlaybook || filterEmotion || filterTags.length > 0 || filterMistake;
 
   // Handlers
   const handleSelectTrade = (id: string, e: React.MouseEvent) => {
@@ -766,6 +804,13 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
              <label className="block text-xs text-textMuted mb-1">Status</label>
              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="w-full bg-background border border-surfaceHighlight rounded-lg px-3 py-2 text-sm text-text outline-none">
                <option value="ALL">All</option><option value={TradeStatus.OPEN}>Open</option><option value={TradeStatus.CLOSED}>Closed</option><option value={TradeStatus.BE}>Break Even</option>
+             </select>
+           </div>
+           <div className="md:col-span-1">
+             <label className="block text-xs text-textMuted mb-1">Mistake</label>
+             <select value={filterMistake} onChange={(e) => setFilterMistake(e.target.value)} className="w-full bg-background border border-surfaceHighlight rounded-lg px-3 py-2 text-sm text-text outline-none">
+               <option value="">All</option>
+               {DEFAULT_MISTAKES.map(m => <option key={m} value={m}>{m}</option>)}
              </select>
            </div>
            <div className="md:col-span-2 grid grid-cols-2 gap-2">
