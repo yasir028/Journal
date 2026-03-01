@@ -8,9 +8,10 @@ interface DashboardProps {
   trades: Trade[];
   playbooks?: Playbook[];
   onNavigateToJournal?: (date: string) => void;
+  onFilterTrades?: (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigateToJournal }) => {
+const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigateToJournal, onFilterTrades }) => {
   // --- STATE ---
   const [viewDate, setViewDate] = useState(() => {
     if (trades.length > 0) {
@@ -239,14 +240,14 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
 
   // --- BREAKDOWN DATA ---
   const breakdownData = useMemo(() => {
-    const map: Record<string, { count: number; pnl: number; wins: number }> = {};
+    const map: Record<string, { count: number; pnl: number; wins: number; label: string }> = {};
     
     // Flatten trades for 'mistakes' since it's an array
     if (breakdownTab === 'mistakes') {
        filteredTrades.forEach(t => {
           if (t.mistakes && t.mistakes.length > 0) {
             t.mistakes.forEach(m => {
-              if (!map[m]) map[m] = { count: 0, pnl: 0, wins: 0 };
+              if (!map[m]) map[m] = { count: 0, pnl: 0, wins: 0, label: m };
               map[m].count++;
               map[m].pnl += (t.pnl || 0); 
               if ((t.pnl || 0) > 0) map[m].wins++;
@@ -256,15 +257,27 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
     } else {
        filteredTrades.forEach(t => {
           let key = 'Unknown';
-          if (breakdownTab === 'setups') key = t.setup || 'No Setup';
-          if (breakdownTab === 'symbols') key = t.symbol;
-          if (breakdownTab === 'emotions') key = t.emotionPre;
+          let label = 'Unknown';
+
+          if (breakdownTab === 'setups') {
+             key = t.setup || 'No Setup';
+             label = key;
+          }
+          if (breakdownTab === 'symbols') {
+             key = t.symbol;
+             label = key;
+          }
+          if (breakdownTab === 'emotions') {
+             key = t.emotionPre;
+             label = key;
+          }
           if (breakdownTab === 'playbooks') {
+            key = t.playbookId || 'No Playbook';
             const pb = playbooks.find(p => p.id === t.playbookId);
-            key = pb ? pb.name : 'No Playbook';
+            label = pb ? pb.name : 'No Playbook';
           }
 
-          if (!map[key]) map[key] = { count: 0, pnl: 0, wins: 0 };
+          if (!map[key]) map[key] = { count: 0, pnl: 0, wins: 0, label };
           map[key].count++;
           map[key].pnl += (t.pnl || 0);
           if ((t.pnl || 0) > 0) map[key].wins++;
@@ -272,10 +285,19 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
     }
 
     return Object.entries(map)
-      .map(([name, data]) => ({ name, count: data.count, pnl: data.pnl, winRate: (data.wins / data.count) * 100 }))
+      .map(([id, data]) => ({ id, name: data.label, count: data.count, pnl: data.pnl, winRate: (data.wins / data.count) * 100 }))
       .sort((a, b) => b.pnl - a.pnl);
   }, [filteredTrades, breakdownTab, playbooks]);
 
+  const handleRowClick = (id: string) => {
+      if (!onFilterTrades) return;
+      
+      if (breakdownTab === 'setups') onFilterTrades('setup', id === 'No Setup' ? '' : id);
+      if (breakdownTab === 'symbols') onFilterTrades('symbol', id);
+      if (breakdownTab === 'emotions') onFilterTrades('emotion', id);
+      if (breakdownTab === 'playbooks') onFilterTrades('playbook', id === 'No Playbook' ? '' : id);
+      if (breakdownTab === 'mistakes') onFilterTrades('mistake', id);
+  };
 
   // --- CALENDAR LOGIC ---
   const calendarData = useMemo(() => {
@@ -641,7 +663,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
             </thead>
             <tbody className="text-sm text-text divide-y divide-gray-800/20">
               {breakdownData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-surfaceHighlight/30 transition-colors">
+                <tr key={idx} onClick={() => handleRowClick(row.id)} className="hover:bg-surfaceHighlight/30 transition-colors cursor-pointer">
                   <td className="px-6 py-3 font-medium">{row.name}</td>
                   <td className="px-6 py-3 text-right text-textMuted">{row.count}</td>
                   <td className="px-6 py-3 text-right">

@@ -11,7 +11,7 @@ import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note } from './types';
 
 // --- CONFIGURATION ---
-// Ensure this matches your json-server terminal port
+// UPDATED: Now pointing to your new Express + SQLite Backend
 const API_URL = 'http://localhost:3000';
 
 const App: React.FC = () => {
@@ -50,29 +50,43 @@ const App: React.FC = () => {
     marketReviewTimes: ['16:00']
   });
 
+  const [journalFilters, setJournalFilters] = useState<{
+    symbol?: string;
+    setup?: string;
+    playbookId?: string;
+    emotion?: string;
+    mistake?: string;
+  } | undefined>(undefined);
+
   // --- FETCH DATA FROM LOCAL DB ---
   useEffect(() => {
     const loadData = async () => {
       try {
         // 1. Load Accounts
         const accRes = await fetch(`${API_URL}/accounts`);
-        const accData = await accRes.json();
-        if (accData.length > 0) {
-            setAccounts(accData);
-            if (!accData.find((a: Account) => a.id === activeAccountId)) {
-                setActiveAccountId(accData[0].id);
+        if (accRes.ok) {
+            const accData = await accRes.json();
+            if (accData.length > 0) {
+                setAccounts(accData);
+                if (!accData.find((a: Account) => a.id === activeAccountId)) {
+                    setActiveAccountId(accData[0].id);
+                }
             }
         }
 
         // 2. Load Trades
         const tradeRes = await fetch(`${API_URL}/trades`);
-        const tradeData = await tradeRes.json();
-        setTrades(tradeData);
+        if (tradeRes.ok) {
+            const tradeData = await tradeRes.json();
+            setTrades(tradeData);
+        }
 
         // 3. Load Notes
         const noteRes = await fetch(`${API_URL}/notes`);
-        const noteData = await noteRes.json();
-        setNotes(noteData);
+        if (noteRes.ok) {
+            const noteData = await noteRes.json();
+            setNotes(noteData);
+        }
 
         // 4. Load Playbooks
         const pbRes = await fetch(`${API_URL}/playbooks`);
@@ -81,27 +95,25 @@ const App: React.FC = () => {
             if (pbData.length > 0) setPlaybooks(pbData);
         }
 
-        // 5. Load Daily Analysis (Pre-Market) [NEW]
+        // 5. Load Daily Analysis (Pre-Market)
         const analysisRes = await fetch(`${API_URL}/daily_analysis`);
         if (analysisRes.ok) {
             const analysisData = await analysisRes.json();
-            // Convert Array [{id: 'date', content: 'text'}] -> Object {'date': 'text'}
             const analysisMap = analysisData.reduce((acc: any, item: any) => ({ ...acc, [item.id]: item.content }), {});
             setDailyAnalysis(analysisMap);
         }
 
-        // 6. Load Daily Reviews (End of Day) [NEW]
+        // 6. Load Daily Reviews (End of Day)
         const reviewsRes = await fetch(`${API_URL}/daily_reviews`);
         if (reviewsRes.ok) {
             const reviewsData = await reviewsRes.json();
-            // Convert Array -> Object
             const reviewsMap = reviewsData.reduce((acc: any, item: any) => ({ ...acc, [item.id]: item.content }), {});
             setDailyReviews(reviewsMap);
         }
 
       } catch (error) {
         console.error("Could not load data.", error);
-        addToast("Error: Is the database terminal running?", "error");
+        addToast("Error: Is the SQLite Express server running?", "error");
       }
     };
     loadData();
@@ -153,12 +165,11 @@ const App: React.FC = () => {
     } catch (err) { addToast('Failed to delete trade.', 'error'); }
   };
 
-  // --- ANALYSIS & REVIEW HANDLERS [NEW] ---
+  // --- ANALYSIS & REVIEW HANDLERS ---
 
   const handleSaveDailyAnalysis = async (date: string, text: string) => {
     try {
       const entry = { id: date, content: text };
-      // Check if it already exists in our local state to decide method
       const exists = dailyAnalysis[date]; 
       const method = exists ? 'PUT' : 'POST';
       const url = exists ? `${API_URL}/daily_analysis/${date}` : `${API_URL}/daily_analysis`;
@@ -333,6 +344,19 @@ const App: React.FC = () => {
       } catch(err) { addToast('Error deleting note', 'error'); }
   };
 
+  // --- NAVIGATION HANDLERS ---
+  const handleFilterTrades = (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => {
+      const filters: any = {};
+      if (type === 'symbol') filters.symbol = value;
+      if (type === 'setup') filters.setup = value;
+      if (type === 'playbook') filters.playbookId = value;
+      if (type === 'emotion') filters.emotion = value;
+      if (type === 'mistake') filters.mistake = value;
+      
+      setJournalFilters(filters);
+      setView('journal');
+  };
+
   // --- BOILERPLATE ---
   const addToast = (message: string, type: ToastType = 'success') => {
     const id = Date.now().toString();
@@ -409,7 +433,7 @@ const App: React.FC = () => {
             { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
             { id: 'settings', icon: SettingsIcon, label: 'Settings' },
           ].map(item => (
-             <button key={item.id} onClick={() => { setView(item.id as any); setIsMobileSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${view === item.id ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-text'}`}>
+             <button key={item.id} onClick={() => { setView(item.id as any); setIsMobileSidebarOpen(false); if(item.id === 'journal') setJournalFilters(undefined); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${view === item.id ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-text'}`}>
                 <item.icon size={22} />
                 <span className="font-medium">{item.label}</span>
              </button>
@@ -443,9 +467,9 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-bold text-text capitalize">{view.replace('_', ' ')}</h1>
          </header>
 
-         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} />}
+         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onFilterTrades={handleFilterTrades} />}
          
-         {view === 'analytics' && <Analytics trades={activeTrades} />}
+         {view === 'analytics' && <Analytics trades={activeTrades} onFilterTrades={handleFilterTrades} />}
          
          {view === 'daily_journal' && (
            <DailyJournal 
@@ -460,7 +484,7 @@ const App: React.FC = () => {
 
          {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={() => {}} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={() => {}} />}
          
-         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} />}
+         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} />}
          
          {view === 'mindfulness' && (
            <Mindfulness 
