@@ -202,6 +202,53 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
           </div>
         </div>
 
+        {/* TRADES LIST */}
+        <div className="px-6 py-4 border-b border-surfaceHighlight">
+          <div className="flex items-center gap-2 mb-4">
+            <Search size={16} className="text-textMuted" />
+            <span className="text-xs font-semibold text-textMuted uppercase tracking-wider">Trades for this day</span>
+          </div>
+          <div className="space-y-2">
+            {todaysTrades.length > 0 ? (
+              todaysTrades.map((trade) => (
+                <div
+                  key={trade.id}
+                  onClick={() => onNavigateToTrade?.(trade.id)}
+                  className="flex items-center justify-between p-3 bg-surface rounded-lg border border-surfaceHighlight hover:border-primary/50 cursor-pointer transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-1 h-8 rounded-full ${trade.type === 'LONG' ? 'bg-success' : 'bg-danger'}`} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">{trade.symbol}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${trade.type === 'LONG' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                          {trade.type}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-textMuted">{trade.entryTime}</span>
+                        {trade.setup && (
+                          <span className="text-[10px] text-textMuted bg-surfaceHighlight px-1.5 rounded">{trade.setup}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-sm font-bold ${trade.pnl && trade.pnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                      {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[10px] text-textMuted">{trade.quantity} units</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 bg-surfaceHighlight/20 rounded-lg border border-dashed border-surfaceHighlight">
+                <p className="text-sm text-textMuted">No trades recorded for this date.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* PRE-MARKET CONTEXT */}
         {dailyAnalysis[selectedDate] && (
            <div className="px-6 pt-6">

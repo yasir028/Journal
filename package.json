@@ -5,16 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server.cjs",
+    "start": "concurrently --names \"API,UI\" --prefix-colors \"cyan,magenta\" \"node server.cjs\" \"vite\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
     "@google/generative-ai": "^0.24.1",
-    "@libsql/client": "^0.17.0",
-    "@prisma/adapter-libsql": "^7.4.0",
-    "@prisma/client": "^7.4.0",
-    "@supabase/supabase-js": "^2.87.1",
     "@tiptap/core": "latest",
     "@tiptap/extension-link": "latest",
     "@tiptap/extension-placeholder": "latest",
@@ -26,19 +24,18 @@
     "clsx": "latest",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "json-server": "^1.0.0-beta.3",
     "lucide-react": "^0.554.0",
-    "prisma": "^7.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "recharts": "^3.5.0"
   },
   "devDependencies": {
-    "@prisma/config": "^7.4.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.2",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
