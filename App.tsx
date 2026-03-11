@@ -10,9 +10,10 @@ import Settings from './components/Settings';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note } from './types';
 
-// --- CONFIGURATION ---
-// UPDATED: Now pointing to your new Express + SQLite Backend
-const API_URL = 'http://localhost:3000';
+// ─── API CONFIGURATION ────────────────────────────────────────
+// Vite proxies /api → http://localhost:3001 (see vite.config.ts)
+// So you never need to change this URL when deploying.
+const API_URL = '/api';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'dashboard' | 'daily_journal' | 'notebook' | 'journal' | 'mindfulness' | 'analytics' | 'settings'>('dashboard');
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>(DEFAULT_PLAYBOOKS);
+  const [isLoading, setIsLoading] = useState(true);
   
   // UI State
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
@@ -113,7 +115,9 @@ const App: React.FC = () => {
 
       } catch (error) {
         console.error("Could not load data.", error);
-        addToast("Error: Is the SQLite Express server running?", "error");
+        addToast("Error: Is the API server running? Run: node server.cjs", "error");
+      } finally {
+        setIsLoading(false);
       }
     };
     loadData();
@@ -371,6 +375,19 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
+  // --- LOADING SCREEN ---
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-textMuted text-sm">Connecting to local database...</p>
+          <p className="text-textMuted text-xs mt-2 opacity-60">Make sure <code>node server.cjs</code> is running</p>
+        </div>
+      </div>
+    );
+  }
+
   // --- RENDER ---
   return (
     <div className="min-h-screen bg-background flex transition-colors duration-300 relative">
@@ -476,7 +493,7 @@ const App: React.FC = () => {
               trades={activeTrades} 
               dailyAnalysis={dailyAnalysis} 
               dailyReviews={dailyReviews} 
-              onSaveReview={handleSaveDailyReview} // Connected to Smart Save
+              onSaveReview={handleSaveDailyReview}
               initialDate={journalDate} 
               onNavigateToTrade={(id) => { setFocusedTradeId(id); setView('journal'); }} 
             />
@@ -490,7 +507,7 @@ const App: React.FC = () => {
            <Mindfulness 
              trades={activeTrades} 
              dailyAnalysis={dailyAnalysis} 
-             onSaveAnalysis={handleSaveDailyAnalysis} // Connected to Smart Save
+             onSaveAnalysis={handleSaveDailyAnalysis}
             />
           )}
          
