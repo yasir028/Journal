@@ -2,10 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Trade, DailyAnalysis, DailyReview, TradeStatus, TradeType } from '../types';
 import { 
   FileText, Calendar, Search, Filter, 
-  MoreHorizontal, Plus, BrainCircuit, ChevronDown, ChevronUp, Save
+  MoreHorizontal, Plus, BrainCircuit, ChevronDown, ChevronUp, Save,
+  Download, X, FileDown, Loader2
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import RichTextEditor from './RichTextEditor';
+import { generateReport, getDateRange, ReportPeriod } from '../services/reportService';
 
 interface DailyJournalProps {
   trades: Trade[];
@@ -19,6 +21,14 @@ interface DailyJournalProps {
 const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate, onNavigateToTrade }) => {
   // --- STATE ---
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL'>('MONTH');
+  
+  // Report modal state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('weekly');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   
   // 1. Calculate ALL unique dates first
   const allDates = useMemo(() => {
@@ -69,6 +79,78 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
     const d = new Date(dateStr + 'T12:00:00');
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   };
+
+  // --- REPORT GENERATION ---
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    setReportError(null);
+
+    try {
+      let startDate: string;
+      let endDate: string;
+
+      if (reportPeriod === 'custom') {
+        if (!customStart || !customEnd) {
+          throw new Error('Please select both start and end dates.');
+        }
+        if (customStart > customEnd) {
+          throw new Error('Start date must be before end date.');
+        }
+        startDate = customStart;
+        endDate = customEnd;
+      } else {
+        // Use the currently selected date as the reference point
+        const range = getDateRange(reportPeriod, selectedDate);
+        startDate = range.startDate;
+        endDate = range.endDate;
+      }
+
+      await generateReport({
+        period: reportPeriod,
+        startDate,
+        endDate,
+        trades,
+        dailyAnalysis,
+        dailyReviews,
+      });
+
+      setShowReportModal(false);
+    } catch (err: any) {
+      setReportError(err.message || 'Failed to generate report.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Report period preview (shows what range will be exported)
+  const reportPreview = useMemo(() => {
+    if (reportPeriod === 'custom') {
+      if (!customStart || !customEnd) return 'Select date range';
+      return `${customStart} to ${customEnd}`;
+    }
+    const range = getDateRange(reportPeriod, selectedDate);
+    const fmt = (d: string) => {
+      const dt = new Date(d + 'T12:00:00');
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+    if (reportPeriod === 'daily') return fmt(range.startDate);
+    return `${fmt(range.startDate)} – ${fmt(range.endDate)}`;
+  }, [reportPeriod, selectedDate, customStart, customEnd]);
+
+  // Count trades in report range for preview
+  const reportTradeCount = useMemo(() => {
+    let start: string, end: string;
+    if (reportPeriod === 'custom') {
+      start = customStart || '';
+      end = customEnd || '';
+    } else {
+      const range = getDateRange(reportPeriod, selectedDate);
+      start = range.startDate;
+      end = range.endDate;
+    }
+    if (!start || !end) return 0;
+    return trades.filter(t => t.date >= start && t.date <= end).length;
+  }, [reportPeriod, selectedDate, customStart, customEnd, trades]);
 
   // --- STATS & DATA PROCESSING ---
   const todaysTrades = useMemo(() => trades.filter(t => t.date === selectedDate), [trades, selectedDate]);
@@ -153,6 +235,17 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
             );
           })}
         </div>
+
+        {/* REPORT BUTTON — bottom of sidebar */}
+        <div className="p-3 border-t border-surfaceHighlight">
+          <button
+            onClick={() => setShowReportModal(true)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-primary/10 text-primary font-semibold text-sm rounded-lg hover:bg-primary/20 transition-all border border-primary/20"
+          >
+            <FileDown size={16} />
+            Export Report
+          </button>
+        </div>
       </div>
 
       {/* PANE 2: MAIN CONTENT */}
@@ -168,7 +261,17 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
               Net P&L {dayStats.netPnl >= 0 ? '+' : ''}${dayStats.netPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
           </div>
-          <button className="p-2 hover:bg-surfaceHighlight rounded-full text-textMuted transition-colors"><MoreHorizontal size={20}/></button>
+          <div className="flex items-center gap-2">
+            {/* Mobile report button */}
+            <button 
+              onClick={() => setShowReportModal(true)}
+              className="p-2 hover:bg-primary/10 rounded-full text-primary transition-colors md:hidden"
+              title="Export Report"
+            >
+              <FileDown size={20}/>
+            </button>
+            <button className="p-2 hover:bg-surfaceHighlight rounded-full text-textMuted transition-colors"><MoreHorizontal size={20}/></button>
+          </div>
         </div>
 
         {/* Stats & Chart */}
@@ -284,6 +387,127 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
           />
         </div>
       </div>
+
+      {/* ── REPORT MODAL ────────────────────────────────────────────────── */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-surface border border-surfaceHighlight rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-surfaceHighlight">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <FileDown size={20} className="text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-text text-lg">Export Report</h3>
+                  <p className="text-xs text-textMuted">Download as Word (.docx)</p>
+                </div>
+              </div>
+              <button onClick={() => { setShowReportModal(false); setReportError(null); }} className="p-1.5 hover:bg-surfaceHighlight rounded-lg transition-colors">
+                <X size={18} className="text-textMuted" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-5">
+              {/* Period Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-textMuted uppercase tracking-wider mb-2">Report Period</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { value: 'daily', label: 'Day' },
+                    { value: 'weekly', label: 'Week' },
+                    { value: 'monthly', label: 'Month' },
+                    { value: 'custom', label: 'Custom' },
+                  ] as { value: ReportPeriod; label: string }[]).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setReportPeriod(opt.value)}
+                      className={`py-2 px-3 text-sm font-semibold rounded-lg border transition-all ${
+                        reportPeriod === opt.value
+                          ? 'bg-primary text-white border-primary shadow-md shadow-primary/20'
+                          : 'bg-surfaceHighlight text-textMuted border-surfaceHighlight hover:text-text hover:border-primary/30'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Date Range */}
+              {reportPeriod === 'custom' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-textMuted mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={customStart}
+                      onChange={e => setCustomStart(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-surfaceHighlight rounded-lg text-text text-sm focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-textMuted mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={customEnd}
+                      onChange={e => setCustomEnd(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-surfaceHighlight rounded-lg text-text text-sm focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Preview */}
+              <div className="bg-background border border-surfaceHighlight rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-textMuted">Date Range</span>
+                  <span className="text-sm font-semibold text-text">{reportPreview}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-textMuted">Trades Found</span>
+                  <span className={`text-sm font-bold ${reportTradeCount > 0 ? 'text-primary' : 'text-textMuted'}`}>{reportTradeCount}</span>
+                </div>
+              </div>
+
+              {/* Error */}
+              {reportError && (
+                <div className="bg-danger/10 border border-danger/30 text-danger text-sm rounded-lg p-3">
+                  {reportError}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-surfaceHighlight flex gap-3">
+              <button
+                onClick={() => { setShowReportModal(false); setReportError(null); }}
+                className="flex-1 py-2.5 text-sm font-semibold text-textMuted bg-surfaceHighlight rounded-lg hover:bg-surfaceHighlight/70 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGenerating}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-primary rounded-lg hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download size={16} />
+                    Download .docx
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
