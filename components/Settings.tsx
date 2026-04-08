@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CheckInSettings, Trade, TradeType, TradeStatus, Emotion, Playbook } from '../types';
-import { Save, Download, Upload, FileText, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X } from 'lucide-react';
+import { Save, Download, Upload, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X } from 'lucide-react';
 
 interface SettingsProps {
   trades?: Trade[];
@@ -34,11 +34,11 @@ const Settings: React.FC<SettingsProps> = ({
 
   useEffect(() => {
     if (initialSettings) {
-      setSettings(prev => ({
+      setSettings(_prev => ({
         ...initialSettings,
         // Backward compatibility if marketReviewTime exists but not marketReviewTimes
-        marketReviewTimes: initialSettings.marketReviewTimes || 
-          (initialSettings['marketReviewTime'] ? [initialSettings['marketReviewTime']] : [])
+        marketReviewTimes: initialSettings.marketReviewTimes ||
+          ((initialSettings as any).marketReviewTime ? [(initialSettings as any).marketReviewTime] : [])
       }));
     }
   }, [initialSettings]);
@@ -157,30 +157,21 @@ const Settings: React.FC<SettingsProps> = ({
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
-        // Handle different newline formats
         const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-        
         if (lines.length < 2) throw new Error("File is empty or invalid format");
 
-        // Robust CSV Line Parser to handle quotes
-        const parseLine = (line: string) => {
-          const result = [];
+        // Robust CSV line parser (handles quoted fields)
+        const parseLine = (line: string): string[] => {
+          const result: string[] = [];
           let current = '';
           let inQuote = false;
-          
           for (let i = 0; i < line.length; i++) {
             const char = line[i];
-            
             if (char === '"') {
-              if (inQuote && line[i + 1] === '"') {
-                current += '"';
-                i++; // Skip next quote
-              } else {
-                inQuote = !inQuote;
-              }
+              if (inQuote && line[i + 1] === '"') { current += '"'; i++; }
+              else { inQuote = !inQuote; }
             } else if (char === ',' && !inQuote) {
-              result.push(current);
-              current = '';
+              result.push(current); current = '';
             } else {
               current += char;
             }
@@ -190,117 +181,144 @@ const Settings: React.FC<SettingsProps> = ({
         };
 
         const headers = parseLine(lines[0]).map(h => h.trim().toLowerCase());
+
+        // ── Detect format ────────────────────────────────────────────
+        // Platform export (NinjaTrader / Tradovate style) has boughtTimestamp + buyPrice
+        const isPlatformFormat = headers.includes('boughttimestamp') || headers.includes('buyprice');
+
         const parsedTrades: Trade[] = [];
+
+        // ── Helper: parse platform PnL  "$144.00" / "$(55.00)" ──────
+        const parsePnl = (s: string): number => {
+          if (!s) return 0;
+          const neg = s.includes('(');
+          const clean = s.replace(/[$(),\s]/g, '');
+          return neg ? -parseFloat(clean) : parseFloat(clean);
+        };
+
+        // ── Helper: parse "MM/DD/YYYY HH:MM:SS" → { date, time } ───
+        const parseTimestamp = (ts: string): { date: string; time: string } => {
+          const [datePart = '', timePart = ''] = ts.trim().split(' ');
+          const [mm = '01', dd = '01', yyyy = '2000'] = datePart.split('/');
+          return {
+            date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`,
+            time: timePart,
+          };
+        };
 
         for (let i = 1; i < lines.length; i++) {
           const row = parseLine(lines[i]);
-          
-          // Helper to map possible header names to value
           const getVal = (keys: string[]) => {
-            const index = headers.findIndex(h => keys.includes(h));
-            return index !== -1 ? row[index]?.trim() : undefined;
+            const idx = headers.findIndex(h => keys.includes(h));
+            return idx !== -1 ? row[idx]?.trim() : undefined;
           };
 
           const symbol = getVal(['symbol']);
           if (!symbol) continue;
 
-          // Map Fields
-          const date = getVal(['date']) || new Date().toISOString().slice(0,10);
-          
-          const sideStr = getVal(['side', 'type'])?.toUpperCase();
-          const type = sideStr === 'SHORT' ? TradeType.SHORT : TradeType.LONG;
-          
-          const qtyStr = getVal(['qty', 'quantity']);
-          const quantity = parseFloat(qtyStr || '0');
-          
-          const entryStr = getVal(['entry', 'entryprice']);
-          const entryPrice = parseFloat(entryStr || '0');
-          
-          const exitStr = getVal(['exit', 'exitprice']);
-          const exitPrice = exitStr && exitStr !== '' ? parseFloat(exitStr) : undefined;
-          
-          const stopStr = getVal(['stop', 'stoploss']);
-          const stopLoss = stopStr && stopStr !== '' ? parseFloat(stopStr) : undefined;
-          
-          const pnlStr = getVal(['pnl']);
-          const pnl = pnlStr && pnlStr !== '' ? parseFloat(pnlStr) : undefined;
-          
-          const feesStr = getVal(['fees', 'commission', 'commissions']);
-          const fees = feesStr && feesStr !== '' ? parseFloat(feesStr) : undefined;
+          if (isPlatformFormat) {
+            // ── Platform format ──────────────────────────────────────
+            const boughtTs = getVal(['boughttimestamp']) || '';
+            const soldTs   = getVal(['soldtimestamp'])   || '';
+            const bought   = parseTimestamp(boughtTs);
+            const sold     = parseTimestamp(soldTs);
 
-          const rStr = getVal(['r']);
-          let r = rStr && rStr !== '' ? parseFloat(rStr) : undefined;
+            // LONG = bought before sold; SHORT = sold before bought
+            const boughtMs = new Date(`${bought.date}T${bought.time}`).getTime();
+            const soldMs   = new Date(`${sold.date}T${sold.time}`).getTime();
+            const isLong   = boughtMs <= soldMs;
+            const type     = isLong ? TradeType.LONG : TradeType.SHORT;
 
-          const entryTime = getVal(['entrytime', 'time']);
-          const exitTime = getVal(['exittime']);
+            const buyPrice  = parseFloat(getVal(['buyprice'])  || '0');
+            const sellPrice = parseFloat(getVal(['sellprice']) || '0');
+            const entryPrice = isLong ? buyPrice  : sellPrice;
+            const exitPrice  = isLong ? sellPrice : buyPrice;
+            const entryTime  = isLong ? bought.time : sold.time;
+            const exitTime   = isLong ? sold.time   : bought.time;
+            const date       = isLong ? bought.date  : sold.date;
 
-          const setup = getVal(['setup']) || '';
-          
-          const emotionStr = getVal(['emotionpre', 'emotion']);
-          const emotionPre = Object.values(Emotion).includes(emotionStr as Emotion) 
-            ? (emotionStr as Emotion) 
-            : Emotion.NEUTRAL;
+            const pnlRaw = getVal(['pnl']) || '';
+            const pnl    = parsePnl(pnlRaw);
+            const qty    = parseFloat(getVal(['qty', 'quantity']) || '0');
 
-          // Merge Tags into Notes if tags column exists
-          const rawNotes = getVal(['notes']) || '';
-          const tags = getVal(['tags']);
-          const notes = tags ? `${rawNotes}\nTags: ${tags}`.trim() : rawNotes;
-          
-          const mistakesStr = getVal(['mistakes']);
-          const mistakes = mistakesStr ? mistakesStr.split(';').map(m => m.trim()) : undefined;
-          const playbookId = getVal(['playbookid', 'playbook']);
+            parsedTrades.push({
+              id:          `${getVal(['buyfillid']) || Date.now()}_${getVal(['sellfillid']) || i}`,
+              date,
+              symbol:      symbol.toUpperCase(),
+              type,
+              status:      TradeStatus.CLOSED,
+              entryPrice,
+              exitPrice,
+              quantity:    qty,
+              pnl,
+              entryTime,
+              exitTime,
+              emotionPre:  Emotion.NEUTRAL,
+              notes:       '',
+              setup:       '',
+            });
 
-          // Infer Status
-          let status = TradeStatus.OPEN;
-          const statusVal = getVal(['status'])?.toUpperCase();
-          if (statusVal === 'CLOSED' || statusVal === 'OPEN' || statusVal === 'BE') {
-             status = statusVal as TradeStatus;
-          } else if (exitPrice !== undefined || pnl !== undefined) {
-             status = TradeStatus.CLOSED;
-          }
+          } else {
+            // ── Internal format (existing export schema) ─────────────
+            const date     = getVal(['date']) || new Date().toISOString().slice(0, 10);
+            const sideStr  = getVal(['side', 'type'])?.toUpperCase();
+            const type     = sideStr === 'SHORT' ? TradeType.SHORT : TradeType.LONG;
+            const quantity = parseFloat(getVal(['qty', 'quantity']) || '0');
+            const entryPrice = parseFloat(getVal(['entry', 'entryprice']) || '0');
+            const exitStr  = getVal(['exit', 'exitprice']);
+            const exitPrice  = exitStr ? parseFloat(exitStr) : undefined;
+            const stopStr  = getVal(['stop', 'stoploss']);
+            const stopLoss   = stopStr ? parseFloat(stopStr) : undefined;
+            const pnlStr   = getVal(['pnl']);
+            const pnl      = pnlStr ? parseFloat(pnlStr) : undefined;
+            const feesStr  = getVal(['fees', 'commission', 'commissions']);
+            const fees     = feesStr ? parseFloat(feesStr) : undefined;
+            const rStr     = getVal(['r']);
+            let r          = rStr ? parseFloat(rStr) : undefined;
+            const entryTime  = getVal(['entrytime', 'time']);
+            const exitTime   = getVal(['exittime']);
+            const setup      = getVal(['setup']) || '';
+            const emotionStr = getVal(['emotionpre', 'emotion']);
+            const emotionPre = Object.values(Emotion).includes(emotionStr as Emotion)
+              ? (emotionStr as Emotion) : Emotion.NEUTRAL;
+            const rawNotes = getVal(['notes']) || '';
+            const tags     = getVal(['tags']);
+            const notes    = tags ? `${rawNotes}\nTags: ${tags}`.trim() : rawNotes;
+            const mistakesStr = getVal(['mistakes']);
+            const mistakes = mistakesStr ? mistakesStr.split(';').map(m => m.trim()) : undefined;
+            const playbookId = getVal(['playbookid', 'playbook']);
 
-          // Calculate R if missing
-          if (r === undefined && entryPrice && stopLoss && exitPrice) {
-            const risk = Math.abs(entryPrice - stopLoss);
-            const reward = type === TradeType.LONG 
-                ? exitPrice - entryPrice 
-                : entryPrice - exitPrice;
-            if (risk > 0) {
-                r = parseFloat((reward / risk).toFixed(2));
+            let status = TradeStatus.OPEN;
+            const statusVal = getVal(['status'])?.toUpperCase();
+            if (statusVal === 'CLOSED' || statusVal === 'OPEN' || statusVal === 'BE') {
+              status = statusVal as TradeStatus;
+            } else if (exitPrice !== undefined || pnl !== undefined) {
+              status = TradeStatus.CLOSED;
             }
-          }
 
-          parsedTrades.push({
-            id: getVal(['id']) || (Date.now() + i).toString(),
-            date,
-            symbol: symbol.toUpperCase(),
-            type,
-            status,
-            entryPrice,
-            exitPrice,
-            stopLoss,
-            quantity,
-            pnl,
-            fees,
-            r,
-            entryTime,
-            exitTime,
-            setup,
-            playbookId,
-            mistakes,
-            emotionPre,
-            notes
-          });
+            if (r === undefined && entryPrice && stopLoss && exitPrice) {
+              const risk   = Math.abs(entryPrice - stopLoss);
+              const reward = type === TradeType.LONG ? exitPrice - entryPrice : entryPrice - exitPrice;
+              if (risk > 0) r = parseFloat((reward / risk).toFixed(2));
+            }
+
+            parsedTrades.push({
+              id: getVal(['id']) || (Date.now() + i).toString(),
+              date, symbol: symbol.toUpperCase(), type, status,
+              entryPrice, exitPrice, stopLoss, quantity, pnl, fees, r,
+              entryTime, exitTime, setup, playbookId, mistakes, emotionPre, notes,
+            });
+          }
         }
 
         if (onImportTrades) {
           onImportTrades(parsedTrades);
           setImportStatus('success');
-          setImportMessage(`Successfully imported ${parsedTrades.length} trades.`);
+          setImportMessage(`Successfully imported ${parsedTrades.length} trade${parsedTrades.length !== 1 ? 's' : ''} (${isPlatformFormat ? 'platform export' : 'internal'} format).`);
         }
       } catch (err) {
         setImportStatus('error');
-        setImportMessage("Failed to parse CSV. Ensure format matches.");
+        setImportMessage("Failed to parse CSV. Check the file format.");
         console.error(err);
       }
     };
