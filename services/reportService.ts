@@ -244,12 +244,11 @@ function buildSummarySection(days: DayData[], config: ReportConfig): Paragraph[]
 
 
 function buildTradeTable(trades: Trade[]): Table {
-  // Columns: Symbol | Type | Entry | Exit | Qty | P&L | Setup | Emotion
-  const colWidths = [1000, 700, 900, 900, 650, 1000, 1200, 1200]; // sum ≈ 7550
-  // Adjusted to fit: let's use narrower
-  const cols = [1050, 700, 1000, 1000, 700, 1100, 1800, 2010]; // sum = 9360
+  // Columns: Symbol | Type | Entry | Exit | Qty | R | P&L | Setup
+  // 8 columns balanced across 9360 DXA content width
+  const cols = [1100, 700, 1050, 1050, 600, 700, 1160, 3000]; // sum = 9360
 
-  const headerLabels = ['Symbol', 'Type', 'Entry', 'Exit', 'Qty', 'P&L', 'Setup', 'Emotion'];
+  const headerLabels = ['Symbol', 'Type', 'Entry', 'Exit', 'Qty', 'R', 'P&L', 'Setup / Emotion'];
 
   const headerRow = new TableRow({
     tableHeader: true,
@@ -260,7 +259,7 @@ function buildTradeTable(trades: Trade[]): Table {
         margins: CELL_MARGINS,
         shading: { fill: COLORS.headerBg, type: ShadingType.CLEAR },
         children: [new Paragraph({
-          alignment: AlignmentType.CENTER,
+          alignment: i >= 2 && i <= 6 ? AlignmentType.CENTER : AlignmentType.LEFT,
           children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: COLORS.headerText })],
         })],
       })
@@ -270,35 +269,31 @@ function buildTradeTable(trades: Trade[]): Table {
   const dataRows = trades.map((t, idx) => {
     const pnl = t.pnl || 0;
     const pnlStr = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+    const rStr = t.r != null ? `${t.r >= 0 ? '+' : ''}${t.r.toFixed(2)}R` : '—';
+    const setupEmotion = [t.setup, t.emotionPre].filter(Boolean).join(' · ') || '—';
     const rowFill = idx % 2 === 0 ? 'FFFFFF' : COLORS.rowAlt;
 
-    const cellValues = [
-      t.symbol,
-      t.type,
-      `$${t.entryPrice}`,
-      t.exitPrice != null ? `$${t.exitPrice}` : '—',
-      `${t.quantity}`,
-      pnlStr,
-      t.setup || '—',
-      t.emotionPre || '—',
+    const cells: { val: string; align: typeof AlignmentType[keyof typeof AlignmentType]; color?: string; bold?: boolean }[] = [
+      { val: t.symbol,                                      align: AlignmentType.LEFT },
+      { val: t.type,                                        align: AlignmentType.CENTER },
+      { val: `$${t.entryPrice}`,                            align: AlignmentType.RIGHT },
+      { val: t.exitPrice != null ? `$${t.exitPrice}` : '—', align: AlignmentType.RIGHT },
+      { val: `${t.quantity}`,                               align: AlignmentType.RIGHT },
+      { val: rStr,                                          align: AlignmentType.RIGHT, color: t.r != null ? (t.r >= 0 ? COLORS.success : COLORS.danger) : COLORS.textMuted },
+      { val: pnlStr,                                        align: AlignmentType.RIGHT, color: pnl >= 0 ? COLORS.success : COLORS.danger, bold: true },
+      { val: setupEmotion,                                  align: AlignmentType.LEFT },
     ];
 
     return new TableRow({
-      children: cellValues.map((val, i) =>
+      children: cells.map(({ val, align, color, bold }, i) =>
         new TableCell({
           borders: BORDERS,
           width: { size: cols[i], type: WidthType.DXA },
           margins: CELL_MARGINS,
           shading: { fill: rowFill, type: ShadingType.CLEAR },
           children: [new Paragraph({
-            alignment: i >= 2 && i <= 5 ? AlignmentType.RIGHT : AlignmentType.LEFT,
-            children: [new TextRun({
-              text: val,
-              size: 18,
-              font: 'Arial',
-              color: i === 5 ? (pnl >= 0 ? COLORS.success : COLORS.danger) : COLORS.text,
-              bold: i === 5,
-            })],
+            alignment: align,
+            children: [new TextRun({ text: val, size: 18, font: 'Arial', color: color || COLORS.text, bold: bold || false })],
           })],
         })
       ),
@@ -315,28 +310,48 @@ function buildTradeTable(trades: Trade[]): Table {
 
 function buildTradeNotes(trades: Trade[]): Paragraph[] {
   const paragraphs: Paragraph[] = [];
-  const tradesWithNotes = trades.filter(t => t.notes?.trim() || (t.mistakes && t.mistakes.length > 0));
+  const tradesWithNotes = trades.filter(
+    t => stripHtml(t.notes || '').trim() || (t.mistakes && t.mistakes.length > 0)
+  );
 
   if (tradesWithNotes.length === 0) return paragraphs;
 
   paragraphs.push(
     new Paragraph({
-      spacing: { before: 160, after: 80 },
-      children: [new TextRun({ text: 'Trade Notes & Mistakes', bold: true, size: 20, font: 'Arial', color: COLORS.primary, italics: true })],
+      spacing: { before: 200, after: 80 },
+      children: [new TextRun({ text: 'Trade Notes & Mistakes', bold: true, size: 20, font: 'Arial', color: COLORS.primary })],
     })
   );
 
   tradesWithNotes.forEach(t => {
-    const parts: TextRun[] = [
-      new TextRun({ text: `${t.symbol} (${t.type})`, bold: true, size: 18, font: 'Arial', color: COLORS.text }),
-    ];
-    if (t.notes?.trim()) {
-      parts.push(new TextRun({ text: ` — ${t.notes.trim()}`, size: 18, font: 'Arial', color: COLORS.text }));
-    }
+    // Header line: symbol + type
+    paragraphs.push(new Paragraph({
+      spacing: { before: 100, after: 40 },
+      children: [new TextRun({ text: `${t.symbol} (${t.type})`, bold: true, size: 19, font: 'Arial', color: COLORS.text })],
+    }));
+
+    // Mistakes
     if (t.mistakes && t.mistakes.length > 0) {
-      parts.push(new TextRun({ text: `  [Mistakes: ${t.mistakes.join(', ')}]`, size: 18, font: 'Arial', color: COLORS.danger, italics: true }));
+      paragraphs.push(new Paragraph({
+        spacing: { after: 40 },
+        children: [
+          new TextRun({ text: 'Mistakes: ', bold: true, size: 18, font: 'Arial', color: COLORS.danger }),
+          new TextRun({ text: t.mistakes.join(', '), size: 18, font: 'Arial', color: COLORS.danger, italics: true }),
+        ],
+      }));
     }
-    paragraphs.push(new Paragraph({ spacing: { after: 60 }, children: parts }));
+
+    // Notes (strip HTML from TipTap)
+    const noteText = stripHtml(t.notes || '').trim();
+    if (noteText) {
+      noteText.split('\n').filter(l => l.trim()).forEach(line => {
+        paragraphs.push(new Paragraph({
+          spacing: { after: 30 },
+          indent: { left: 200 },
+          children: [new TextRun({ text: line.trim(), size: 18, font: 'Arial', color: COLORS.text })],
+        }));
+      });
+    }
   });
 
   return paragraphs;
@@ -546,6 +561,144 @@ export async function generateReport(config: ReportConfig): Promise<void> {
   saveAs(blob, fileName);
 }
 
+
+// ── Obsidian Markdown Export ───────────────────────────────────────────────────
+
+export function generateObsidianReport(config: ReportConfig): void {
+  const days = buildDayData(config);
+  if (days.length === 0) throw new Error('No data found for the selected period.');
+
+  const allTrades = days.flatMap(d => d.trades);
+  const totalPnl   = allTrades.reduce((s, t) => s + (t.pnl  || 0), 0);
+  const totalFees  = allTrades.reduce((s, t) => s + (t.fees || 0), 0);
+  const winners    = allTrades.filter(t => (t.pnl || 0) > 0).length;
+  const winRate    = allTrades.length > 0 ? ((winners / allTrades.length) * 100).toFixed(1) : '0';
+  const tradingDays = days.filter(d => d.trades.length > 0).length;
+  const periodLabel = getPeriodLabel(config);
+  const periodTypeLabel = config.period === 'daily'   ? 'Daily'
+                        : config.period === 'weekly'  ? 'Weekly'
+                        : config.period === 'monthly' ? 'Monthly' : 'Custom';
+  const pnlSign = totalPnl >= 0 ? '+' : '';
+
+  // Emotion & mistake breakdowns for summary
+  const emotionCounts: Record<string, number> = {};
+  allTrades.forEach(t => {
+    if (t.emotionPre) emotionCounts[t.emotionPre] = (emotionCounts[t.emotionPre] || 0) + 1;
+  });
+  const topEmotion = Object.entries(emotionCounts).sort((a, b) => b[1] - a[1])[0];
+
+  const mistakeCounts: Record<string, number> = {};
+  allTrades.forEach(t => {
+    t.mistakes?.forEach(m => { mistakeCounts[m] = (mistakeCounts[m] || 0) + 1; });
+  });
+  const topMistakes = Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+  const tags = ['trading', 'journal', config.period, totalPnl >= 0 ? 'profitable' : 'loss-day'];
+
+  let md = '';
+
+  // ── YAML Frontmatter ──────────────────────────────────────────────
+  md += `---\n`;
+  md += `tags: [${tags.join(', ')}]\n`;
+  md += `type: trading-report\n`;
+  md += `period: ${config.period}\n`;
+  md += `date_start: ${config.startDate}\n`;
+  md += `date_end: ${config.endDate}\n`;
+  md += `total_pnl: "${pnlSign}$${totalPnl.toFixed(2)}"\n`;
+  md += `win_rate: "${winRate}%"\n`;
+  md += `total_trades: ${allTrades.length}\n`;
+  md += `generated: ${new Date().toISOString().split('T')[0]}\n`;
+  md += `---\n\n`;
+
+  // ── Title ──────────────────────────────────────────────────────────
+  md += `# ${periodTypeLabel} Trading Report — ${periodLabel}\n\n`;
+
+  // ── Summary ────────────────────────────────────────────────────────
+  md += `## Summary\n\n`;
+  md += `| Metric | Value |\n`;
+  md += `| ------ | ----- |\n`;
+  md += `| Total Trades | ${allTrades.length} |\n`;
+  md += `| Win Rate | ${winRate}% |\n`;
+  md += `| Net P&L | **${pnlSign}$${totalPnl.toFixed(2)}** |\n`;
+  md += `| Total Fees | $${totalFees.toFixed(2)} |\n`;
+  md += `| Trading Days | ${tradingDays} |\n`;
+  md += `| Green Days | ${days.filter(d => d.stats.netPnl > 0).length} |\n`;
+  md += `| Red Days | ${days.filter(d => d.stats.netPnl < 0 && d.trades.length > 0).length} |\n`;
+  if (topEmotion) md += `| Top Emotion | ${topEmotion[0]} (${topEmotion[1]}×) |\n`;
+  if (topMistakes.length > 0) md += `| Top Mistakes | ${topMistakes.map(([m, n]) => `${m} (${n}×)`).join(', ')} |\n`;
+  md += `\n---\n\n`;
+
+  // ── Per-Day Sections ───────────────────────────────────────────────
+  days.forEach(day => {
+    const pnlStr = `${day.stats.netPnl >= 0 ? '+' : ''}$${day.stats.netPnl.toFixed(2)}`;
+    const dayColor = day.stats.netPnl >= 0 ? 'tip' : 'warning';
+
+    md += `## ${formatDate(day.date)}\n\n`;
+
+    // Callout block with day stats
+    md += `> [!${dayColor}] Day Summary\n`;
+    md += `> **${day.stats.totalTrades} trades** · ${day.stats.winners}W / ${day.stats.losers}L · ${day.stats.winRate.toFixed(0)}% WR · Net P&L: **${pnlStr}**\n\n`;
+
+    if (day.preMarket) {
+      md += `### Pre-Market Analysis\n\n`;
+      md += `${day.preMarket}\n\n`;
+    }
+
+    if (day.trades.length > 0) {
+      md += `### Trades\n\n`;
+      md += `| Symbol | Type | Entry | Exit | Qty | R | P&L | Setup | Emotion |\n`;
+      md += `| ------ | ---- | ----: | ---: | --: | -: | --: | ----- | ------- |\n`;
+      day.trades.forEach(t => {
+        const pnl     = t.pnl || 0;
+        const pnlCell = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+        const rCell   = t.r != null ? `${t.r >= 0 ? '+' : ''}${t.r.toFixed(2)}R` : '—';
+        const exit    = t.exitPrice != null ? `$${t.exitPrice}` : '—';
+        md += `| ${t.symbol} | ${t.type} | $${t.entryPrice} | ${exit} | ${t.quantity} | ${rCell} | ${pnlCell} | ${t.setup || '—'} | ${t.emotionPre || '—'} |\n`;
+      });
+      md += '\n';
+
+      // Trade notes
+      const notedTrades = day.trades.filter(
+        t => stripHtml(t.notes || '').trim() || (t.mistakes && t.mistakes.length > 0)
+      );
+      if (notedTrades.length > 0) {
+        md += `### Trade Notes\n\n`;
+        notedTrades.forEach(t => {
+          md += `**${t.symbol} (${t.type})**`;
+          if (t.mistakes && t.mistakes.length > 0) {
+            md += ` — Mistakes: \`${t.mistakes.join(', ')}\``;
+          }
+          md += '\n';
+          const notes = stripHtml(t.notes || '').trim();
+          if (notes) {
+            md += `> ${notes.replace(/\n/g, '\n> ')}\n`;
+          }
+          md += '\n';
+        });
+      }
+    } else {
+      md += `*No trades recorded.*\n\n`;
+    }
+
+    if (day.postReview) {
+      md += `### End-of-Day Review\n\n`;
+      md += `${day.postReview}\n\n`;
+    }
+
+    md += `---\n\n`;
+  });
+
+  // ── Download ───────────────────────────────────────────────────────
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `MindfulTrader_${periodTypeLabel}_${config.startDate}${config.period !== 'daily' ? `_to_${config.endDate}` : ''}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ── Period Helpers (used by UI component) ──────────────────────────────────────
 
