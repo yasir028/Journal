@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trade, DailyAnalysis, DailyReview, TradeStatus, TradeType } from '../types';
-import { 
-  FileText, Calendar, Search, Filter, 
-  MoreHorizontal, Plus, BrainCircuit, ChevronDown, ChevronUp, Save,
+import { Trade, DailyAnalysis, DailyReview, TradeStatus } from '../types';
+import {
+  FileText, Calendar, Search, Filter,
+  MoreHorizontal, BrainCircuit, ChevronDown, ChevronUp, Save,
   Download, X, FileDown, Loader2
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import RichTextEditor from './RichTextEditor';
-import { generateReport, getDateRange, ReportPeriod } from '../services/reportService';
+import { generateReport, generateObsidianReport, getDateRange, ReportPeriod } from '../services/reportService';
 
 interface DailyJournalProps {
   trades: Trade[];
@@ -25,6 +25,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
   // Report modal state
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('weekly');
+  const [reportFormat, setReportFormat] = useState<'docx' | 'obsidian'>('docx');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -105,14 +106,12 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
         endDate = range.endDate;
       }
 
-      await generateReport({
-        period: reportPeriod,
-        startDate,
-        endDate,
-        trades,
-        dailyAnalysis,
-        dailyReviews,
-      });
+      const reportConfig = { period: reportPeriod, startDate, endDate, trades, dailyAnalysis, dailyReviews };
+      if (reportFormat === 'obsidian') {
+        generateObsidianReport(reportConfig);
+      } else {
+        await generateReport(reportConfig);
+      }
 
       setShowReportModal(false);
     } catch (err: any) {
@@ -400,7 +399,9 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
                 </div>
                 <div>
                   <h3 className="font-bold text-text text-lg">Export Report</h3>
-                  <p className="text-xs text-textMuted">Download as Word (.docx)</p>
+                  <p className="text-xs text-textMuted">
+                    {reportFormat === 'obsidian' ? 'Obsidian Markdown (.md)' : 'Word Document (.docx)'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => { setShowReportModal(false); setReportError(null); }} className="p-1.5 hover:bg-surfaceHighlight rounded-lg transition-colors">
@@ -410,9 +411,34 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
 
             {/* Modal Body */}
             <div className="p-5 space-y-5">
+
+              {/* Format Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-textMuted uppercase tracking-wider mb-2">Format</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { value: 'docx',     label: 'Word (.docx)', sub: 'Formatted report' },
+                    { value: 'obsidian', label: 'Obsidian (.md)', sub: 'Markdown + frontmatter' },
+                  ] as { value: 'docx' | 'obsidian'; label: string; sub: string }[]).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setReportFormat(opt.value)}
+                      className={`py-2.5 px-3 text-left rounded-lg border transition-all ${
+                        reportFormat === opt.value
+                          ? 'bg-primary/10 border-primary text-primary'
+                          : 'bg-surfaceHighlight text-textMuted border-surfaceHighlight hover:text-text hover:border-primary/30'
+                      }`}
+                    >
+                      <p className="text-sm font-semibold">{opt.label}</p>
+                      <p className="text-xs opacity-70">{opt.sub}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Period Selector */}
               <div>
-                <label className="block text-xs font-semibold text-textMuted uppercase tracking-wider mb-2">Report Period</label>
+                <label className="block text-xs font-semibold text-textMuted uppercase tracking-wider mb-2">Period</label>
                 <div className="grid grid-cols-4 gap-2">
                   {([
                     { value: 'daily', label: 'Day' },
@@ -500,7 +526,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
                 ) : (
                   <>
                     <Download size={16} />
-                    Download .docx
+                    {reportFormat === 'obsidian' ? 'Download .md' : 'Download .docx'}
                   </>
                 )}
               </button>

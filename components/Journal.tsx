@@ -327,26 +327,52 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const handleCombine = () => {
     if (selectedIds.size < 2) return;
     const toCombine = trades.filter(t => selectedIds.has(t.id));
-    
+
     const totalQty = toCombine.reduce((acc, t) => acc + t.quantity, 0);
     const totalPnl = toCombine.reduce((acc, t) => acc + (t.pnl || 0), 0);
-    // Weighted avg entry
+
+    // Weighted avg entry price
     const avgEntry = toCombine.reduce((acc, t) => acc + (t.entryPrice * t.quantity), 0) / totalQty;
+
     const closedCount = toCombine.filter(t => t.status === TradeStatus.CLOSED).length;
-    
     const status = closedCount === toCombine.length ? TradeStatus.CLOSED : TradeStatus.OPEN;
-    
+
+    // Build multi-exit list from each source trade.
+    // If a source trade itself has sub-exits, expand those. Otherwise use its single exit price + qty.
+    const multiExits: TradeExit[] = toCombine.flatMap((t, ti) => {
+      if (t.exits && t.exits.length > 0) {
+        return t.exits.map((e, ei) => ({
+          id: `${Date.now()}_${ti}_${ei}`,
+          price: e.price,
+          quantity: e.quantity,
+        }));
+      }
+      if (t.exitPrice != null) {
+        return [{ id: `${Date.now()}_${ti}`, price: t.exitPrice, quantity: t.quantity }];
+      }
+      return [];
+    });
+
+    // Weighted avg exit from the multi-exit list (used as the single exitPrice field)
+    const exitQtyTotal = multiExits.reduce((acc, e) => acc + e.quantity, 0);
+    const avgExit = exitQtyTotal > 0
+      ? multiExits.reduce((acc, e) => acc + e.price * e.quantity, 0) / exitQtyTotal
+      : undefined;
+
     const consolidatedTrade: Trade = {
       ...toCombine[0],
       id: Date.now().toString(),
       entryPrice: parseFloat(avgEntry.toFixed(2)),
+      exitPrice: avgExit != null ? parseFloat(avgExit.toFixed(2)) : toCombine[0].exitPrice,
       quantity: totalQty,
-      pnl: totalPnl,
-      status: status,
-      notes: `Combined ${toCombine.length} trades. ${toCombine[0].notes}`,
-      setup: 'Consolidated'
+      pnl: parseFloat(totalPnl.toFixed(2)),
+      status,
+      // Only attach exits array when there are genuinely multiple exit points
+      exits: multiExits.length > 1 ? multiExits : multiExits.length === 1 ? undefined : undefined,
+      notes: `Combined ${toCombine.length} trades.\n${toCombine[0].notes || ''}`.trim(),
+      setup: toCombine[0].setup || '',
     };
-    
+
     onAddTrade(consolidatedTrade);
     setSelectedIds(new Set());
   };
@@ -381,7 +407,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
         const reader = new FileReader();
         reader.onload = (event) => {
           if (event.target?.result) {
-            setImageUrls(prev => [...prev, event.target.result as string]);
+            setImageUrls(prev => [...prev, event.target!.result as string]);
           }
         };
         reader.readAsDataURL(file);
