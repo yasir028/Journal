@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { LayoutDashboard, BookOpen, BrainCircuit, Settings as SettingsIcon, ChevronDown, Plus, CreditCard, Sun, Moon, Notebook as NotebookIcon, BarChart2, Calendar, Trash2 } from 'lucide-react';
+import { LayoutDashboard, BookOpen, BrainCircuit, Settings as SettingsIcon, ChevronDown, Plus, CreditCard, Sun, Moon, Notebook as NotebookIcon, BarChart2, Calendar, Trash2, ShieldCheck, Sparkles } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Journal from './components/Journal';
 import Notebook from './components/Notebook';
@@ -7,8 +7,11 @@ import DailyJournal from './components/DailyJournal';
 import Mindfulness from './components/Mindfulness';
 import Analytics from './components/Analytics';
 import Settings from './components/Settings';
+import RuleTracker from './components/RuleTracker';
+import AIRecaps from './components/AIRecaps';
+import PnLCalendar from './components/PnLCalendar';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
-import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note } from './types';
+import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType } from './types';
 
 // ─── API CONFIGURATION ────────────────────────────────────────
 // Vite proxies /api → http://localhost:3001 (see vite.config.ts)
@@ -16,7 +19,7 @@ import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS
 const API_URL = '/api';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<'dashboard' | 'daily_journal' | 'notebook' | 'journal' | 'mindfulness' | 'analytics' | 'settings'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'daily_journal' | 'notebook' | 'journal' | 'mindfulness' | 'analytics' | 'rules' | 'recaps' | 'calendar' | 'settings'>('dashboard');
   
   // Navigation State
   const [journalDate, setJournalDate] = useState<string | undefined>(undefined);
@@ -39,6 +42,14 @@ const App: React.FC = () => {
   const [newAccountName, setNewAccountName] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Rule Tracker
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [ruleChecks, setRuleChecks] = useState<RuleCheck[]>([]);
+  const [ruleSettings, setRuleSettings] = useState<RuleSettings>({ trading_days: ['Mon','Tue','Wed','Thu','Fri'] });
+
+  // AI Recaps
+  const [aiRecaps, setAiRecaps] = useState<AIRecap[]>([]);
 
   // Settings & Analysis
   const [dailyAnalysis, setDailyAnalysis] = useState<DailyAnalysis>({});
@@ -112,6 +123,22 @@ const App: React.FC = () => {
             const reviewsMap = reviewsData.reduce((acc: any, item: any) => ({ ...acc, [item.id]: item.content }), {});
             setDailyReviews(reviewsMap);
         }
+
+        // 7. Load Rules
+        const rulesRes = await fetch(`${API_URL}/rules`);
+        if (rulesRes.ok) setRules(await rulesRes.json());
+
+        // 8. Load Rule Checks
+        const checksRes = await fetch(`${API_URL}/rule_checks`);
+        if (checksRes.ok) setRuleChecks(await checksRes.json());
+
+        // 9. Load Rule Settings
+        const ruleSettingsRes = await fetch(`${API_URL}/rule_settings`);
+        if (ruleSettingsRes.ok) setRuleSettings(await ruleSettingsRes.json());
+
+        // 10. Load AI Recaps
+        const recapsRes = await fetch(`${API_URL}/ai_recaps`);
+        if (recapsRes.ok) setAiRecaps(await recapsRes.json());
 
       } catch (error) {
         console.error("Could not load data.", error);
@@ -348,6 +375,106 @@ const App: React.FC = () => {
       } catch(err) { addToast('Error deleting note', 'error'); }
   };
 
+  // --- RULE HANDLERS ---
+  const handleAddRule = async (rule: Rule) => {
+    try {
+      await fetch(`${API_URL}/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule),
+      });
+      setRules(prev => [...prev, rule]);
+      addToast('Rule added.');
+    } catch { addToast('Failed to add rule.', 'error'); }
+  };
+
+  const handleUpdateRule = async (rule: Rule) => {
+    try {
+      await fetch(`${API_URL}/rules/${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule),
+      });
+      setRules(prev => prev.map(r => r.id === rule.id ? rule : r));
+    } catch { addToast('Failed to update rule.', 'error'); }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    if (!window.confirm('Delete this rule and all its history?')) return;
+    try {
+      await fetch(`${API_URL}/rules/${id}`, { method: 'DELETE' });
+      setRules(prev => prev.filter(r => r.id !== id));
+      setRuleChecks(prev => prev.filter(c => c.rule_id !== id));
+      addToast('Rule deleted.', 'info');
+    } catch { addToast('Failed to delete rule.', 'error'); }
+  };
+
+  const handleUpdateSettings = async (newSettings: RuleSettings) => {
+    try {
+      await fetch(`${API_URL}/rule_settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings),
+      });
+      setRuleSettings(newSettings);
+      addToast('Settings saved.');
+    } catch { addToast('Failed to save settings.', 'error'); }
+  };
+
+  const handleResetProgress = async () => {
+    if (!window.confirm('Reset all rule check history? This cannot be undone.')) return;
+    try {
+      await fetch(`${API_URL}/rule_checks`, { method: 'DELETE' });
+      setRuleChecks([]);
+      addToast('Progress reset.', 'info');
+    } catch { addToast('Failed to reset progress.', 'error'); }
+  };
+
+  const handleGenerateRecap = async (periodType: RecapPeriodType, start: string, end: string) => {
+    try {
+      const res = await fetch(`${API_URL}/ai_recaps/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Generation failed');
+      }
+      const saved: AIRecap = await res.json();
+      setAiRecaps(prev => {
+        const filtered = prev.filter(r => r.id !== saved.id);
+        return [saved, ...filtered];
+      });
+      addToast('Recap generated!');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to generate recap.', 'error');
+    }
+  };
+
+  const handleDeleteRecap = async (id: string) => {
+    try {
+      await fetch(`${API_URL}/ai_recaps/${id}`, { method: 'DELETE' });
+      setAiRecaps(prev => prev.filter(r => r.id !== id));
+      addToast('Recap deleted.', 'info');
+    } catch { addToast('Failed to delete recap.', 'error'); }
+  };
+
+  const handleToggleCheck = async (check: RuleCheck) => {
+    try {
+      await fetch(`${API_URL}/rule_checks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(check),
+      });
+      setRuleChecks(prev => {
+        const exists = prev.find(c => c.date === check.date && c.rule_id === check.rule_id);
+        if (exists) return prev.map(c => (c.date === check.date && c.rule_id === check.rule_id) ? check : c);
+        return [...prev, check];
+      });
+    } catch { addToast('Failed to save check.', 'error'); }
+  };
+
   // --- NAVIGATION HANDLERS ---
   const handleFilterTrades = (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => {
       const filters: any = {};
@@ -447,6 +574,9 @@ const App: React.FC = () => {
             { id: 'daily_journal', icon: Calendar, label: 'Daily Journal' },
             { id: 'notebook', icon: NotebookIcon, label: 'Notebook' },
             { id: 'analytics', icon: BarChart2, label: 'Analytics' },
+            { id: 'calendar', icon: Calendar, label: 'P&L Calendar' },
+            { id: 'rules', icon: ShieldCheck, label: 'Rule Tracker' },
+            { id: 'recaps', icon: Sparkles, label: 'AI Recaps' },
             { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
             { id: 'settings', icon: SettingsIcon, label: 'Settings' },
           ].map(item => (
@@ -503,10 +633,41 @@ const App: React.FC = () => {
          
          {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} />}
          
+         {view === 'calendar' && (
+           <PnLCalendar
+             trades={activeTrades}
+             onNavigateToDay={(date) => { setJournalDate(date); setView('daily_journal'); }}
+           />
+         )}
+
+         {view === 'rules' && (
+           <RuleTracker
+             rules={rules}
+             ruleChecks={ruleChecks}
+             ruleSettings={ruleSettings}
+             trades={activeTrades}
+             onAddRule={handleAddRule}
+             onUpdateRule={handleUpdateRule}
+             onDeleteRule={handleDeleteRule}
+             onToggleCheck={handleToggleCheck}
+             onUpdateSettings={handleUpdateSettings}
+             onResetProgress={handleResetProgress}
+           />
+         )}
+
+         {view === 'recaps' && (
+           <AIRecaps
+             recaps={aiRecaps}
+             trades={activeTrades}
+             onGenerate={handleGenerateRecap}
+             onDelete={handleDeleteRecap}
+           />
+         )}
+
          {view === 'mindfulness' && (
-           <Mindfulness 
-             trades={activeTrades} 
-             dailyAnalysis={dailyAnalysis} 
+           <Mindfulness
+             trades={activeTrades}
+             dailyAnalysis={dailyAnalysis}
              onSaveAnalysis={handleSaveDailyAnalysis}
             />
           )}
