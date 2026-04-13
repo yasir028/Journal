@@ -103,6 +103,44 @@ export interface Note {
   tags?: string[];
 }
 
+// ── RULE TRACKER TYPES ───────────────────────────────────────────
+export type RuleConditionType = 'time' | 'boolean' | 'dollar' | null;
+
+export interface Rule {
+  id: string;
+  text: string;
+  active: number;                    // 1 = on, 0 = off
+  rule_type: 'system' | 'manual';
+  condition_type?: RuleConditionType;
+  condition_value?: string | null;
+  created_at?: string;
+}
+
+export interface RuleCheck {
+  id: string;
+  date: string;       // YYYY-MM-DD
+  rule_id: string;
+  followed: number;   // 1 = followed, 0 = broke
+}
+
+export interface RuleSettings {
+  trading_days: string[]; // e.g. ['Mon','Tue','Wed','Thu','Fri']
+}
+
+// ── AI RECAP TYPES ───────────────────────────────────────────────
+export type RecapPeriodType = 'weekly' | 'monthly';
+
+export interface AIRecap {
+  id: string;               // e.g. "weekly-2026-04-07"
+  period_type: RecapPeriodType;
+  period_start: string;     // YYYY-MM-DD
+  period_end: string;       // YYYY-MM-DD
+  content: string;          // Markdown from Gemma 4
+  generated_at: string;
+  trade_count: number;
+  net_pnl: number;
+}
+
 export interface CheckInSettings {
   requirePreTrade: boolean;
   checkInAfterLoss: boolean;

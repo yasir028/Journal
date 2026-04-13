@@ -94,16 +94,77 @@ db.exec(`
     updatedAt TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS rules (
+    id              TEXT PRIMARY KEY,
+    text            TEXT NOT NULL,
+    active          INTEGER DEFAULT 0,
+    rule_type       TEXT DEFAULT 'manual',
+    condition_type  TEXT,
+    condition_value TEXT,
+    created_at      TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS rule_checks (
+    id         TEXT PRIMARY KEY,
+    date       TEXT NOT NULL,
+    rule_id    TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+    followed   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(date, rule_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS rule_settings (
+    id            INTEGER PRIMARY KEY DEFAULT 1,
+    trading_days  TEXT DEFAULT '["Mon","Tue","Wed","Thu","Fri"]'
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_recaps (
+    id           TEXT PRIMARY KEY,
+    period_type  TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    generated_at TEXT DEFAULT (datetime('now')),
+    trade_count  INTEGER DEFAULT 0,
+    net_pnl      REAL DEFAULT 0
+  );
+
   CREATE INDEX IF NOT EXISTS idx_trades_date      ON trades (date DESC);
   CREATE INDEX IF NOT EXISTS idx_trades_accountId ON trades (accountId, date DESC);
   CREATE INDEX IF NOT EXISTS idx_trades_symbol    ON trades (symbol);
   CREATE INDEX IF NOT EXISTS idx_daily_journal    ON daily_journal (date DESC);
+  CREATE INDEX IF NOT EXISTS idx_rule_checks_date ON rule_checks (date DESC);
 `);
+
+// ── MIGRATIONS: add new columns to rules if they don't exist ───
+['rule_type TEXT DEFAULT \'manual\'', 'condition_type TEXT', 'condition_value TEXT'].forEach(col => {
+  try { db.exec(`ALTER TABLE rules ADD COLUMN ${col}`); } catch {}
+});
 
 // Seed default account if empty
 const accountCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get();
 if (accountCount.c === 0) {
   db.prepare("INSERT INTO accounts (id, name) VALUES ('default', 'Main Account')").run();
+}
+
+// Seed rule_settings singleton if empty
+const settingsCount = db.prepare('SELECT COUNT(*) as c FROM rule_settings').get();
+if (settingsCount.c === 0) {
+  db.prepare("INSERT INTO rule_settings (id, trading_days) VALUES (1, '[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\"]')").run();
+}
+
+// Seed default system rules if none exist
+const rulesCount = db.prepare("SELECT COUNT(*) as c FROM rules WHERE rule_type = 'system'").get();
+if (rulesCount.c === 0) {
+  const sysRules = [
+    { id: 'sys_start_day',       text: 'Start my day by',              condition_type: 'time',    condition_value: '09:30' },
+    { id: 'sys_playbook',        text: 'Link trades to playbook',       condition_type: 'boolean', condition_value: '100'   },
+    { id: 'sys_stoploss',        text: 'Input Stop loss to all trades', condition_type: 'boolean', condition_value: '100'   },
+    { id: 'sys_maxloss_trade',   text: 'Net max loss /trade',           condition_type: 'dollar',  condition_value: '100'   },
+    { id: 'sys_maxloss_day',     text: 'Net max loss /day',             condition_type: 'dollar',  condition_value: '100'   },
+  ];
+  const ins = db.prepare("INSERT OR IGNORE INTO rules (id, text, active, rule_type, condition_type, condition_value) VALUES (?, ?, 0, 'system', ?, ?)");
+  sysRules.forEach(r => ins.run(r.id, r.text, r.condition_type, r.condition_value));
 }
 
 // ── JSON HELPERS ────────────────────────────────────────────────
@@ -576,9 +637,234 @@ app.get('/ai/affirmation', async (req, res) => {
   }
 });
 
+// ── RULES ────────────────────────────────────────────────────────
+app.get('/rules', (req, res) => {
+  res.json(db.prepare('SELECT * FROM rules ORDER BY rule_type DESC, created_at').all());
+});
+app.post('/rules', (req, res) => {
+  const { id, text, active, rule_type, condition_type, condition_value } = req.body;
+  db.prepare('INSERT OR REPLACE INTO rules (id, text, active, rule_type, condition_type, condition_value) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, text, active ?? 0, rule_type ?? 'manual', condition_type ?? null, condition_value ?? null);
+  res.json({ id, text, active: active ?? 0, rule_type: rule_type ?? 'manual', condition_type, condition_value });
+});
+app.put('/rules/:id', (req, res) => {
+  const { text, active, condition_type, condition_value } = req.body;
+  db.prepare('UPDATE rules SET text = ?, active = ?, condition_type = ?, condition_value = ? WHERE id = ?')
+    .run(text, active ?? 0, condition_type ?? null, condition_value ?? null, req.params.id);
+  res.json({ id: req.params.id, text, active, condition_type, condition_value });
+});
+app.delete('/rules/:id', (req, res) => {
+  // Only allow deleting manual rules
+  db.prepare("DELETE FROM rules WHERE id = ? AND rule_type = 'manual'").run(req.params.id);
+  res.json({ success: true });
+});
+
+// ── RULE SETTINGS ────────────────────────────────────────────────
+app.get('/rule_settings', (req, res) => {
+  const row = db.prepare('SELECT * FROM rule_settings WHERE id = 1').get();
+  if (!row) return res.json({ trading_days: ['Mon','Tue','Wed','Thu','Fri'] });
+  res.json({ ...row, trading_days: JSON.parse(row.trading_days || '[]') });
+});
+app.put('/rule_settings', (req, res) => {
+  const { trading_days } = req.body;
+  db.prepare('INSERT OR REPLACE INTO rule_settings (id, trading_days) VALUES (1, ?)')
+    .run(JSON.stringify(trading_days));
+  res.json({ trading_days });
+});
+
+// ── RULE CHECKS ──────────────────────────────────────────────────
+app.get('/rule_checks', (req, res) => {
+  const { date } = req.query;
+  if (date) {
+    res.json(db.prepare('SELECT * FROM rule_checks WHERE date = ?').all(date));
+  } else {
+    res.json(db.prepare('SELECT * FROM rule_checks ORDER BY date DESC').all());
+  }
+});
+app.post('/rule_checks', (req, res) => {
+  const { id, date, rule_id, followed } = req.body;
+  db.prepare(`
+    INSERT INTO rule_checks (id, date, rule_id, followed)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(date, rule_id) DO UPDATE SET followed = excluded.followed
+  `).run(id, date, rule_id, followed ? 1 : 0);
+  res.json({ id, date, rule_id, followed });
+});
+// Reset all rule checks (progress reset)
+app.delete('/rule_checks', (req, res) => {
+  db.prepare('DELETE FROM rule_checks').run();
+  res.json({ success: true });
+});
+
 // ── HEALTH CHECK ─────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', db: DB_PATH, time: new Date().toISOString() });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── AI RECAPS ROUTES ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+// ── GET /ai_recaps — Return all saved recaps ─────────────────────
+app.get('/ai_recaps', (req, res) => {
+  const rows = db.prepare('SELECT * FROM ai_recaps ORDER BY period_start DESC').all();
+  res.json(rows);
+});
+
+// ── DELETE /ai_recaps/:id — Delete a single recap ────────────────
+app.delete('/ai_recaps/:id', (req, res) => {
+  db.prepare('DELETE FROM ai_recaps WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ── POST /ai_recaps/generate ─────────────────────────────────────
+// Body: { period_type: 'weekly'|'monthly', period_start: 'YYYY-MM-DD', period_end: 'YYYY-MM-DD' }
+app.post('/ai_recaps/generate', async (req, res) => {
+  try {
+    const { period_type, period_start, period_end } = req.body;
+    if (!period_type || !period_start || !period_end) {
+      return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
+    }
+
+    // ── 1. Fetch raw data for the period ──
+    const trades = db.prepare(
+      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end).map(rowToTrade);
+
+    const journalRows = db.prepare(
+      'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end);
+
+    const ruleChecks = db.prepare(
+      'SELECT rc.*, r.text as rule_text FROM rule_checks rc LEFT JOIN rules r ON rc.rule_id = r.id WHERE rc.date >= ? AND rc.date <= ?'
+    ).all(period_start, period_end);
+
+    // ── 2. Aggregate stats ──
+    const closedTrades = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+    const wins  = closedTrades.filter(t => (t.pnl || 0) > 0);
+    const losses = closedTrades.filter(t => (t.pnl || 0) < 0);
+    const netPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+    const winRate = closedTrades.length > 0 ? ((wins.length / closedTrades.length) * 100).toFixed(1) : '0';
+    const grossWin = wins.reduce((s, t) => s + (t.pnl || 0), 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + (t.pnl || 0), 0));
+    const profitFactor = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : wins.length > 0 ? '∞' : '0';
+    const avgWin  = wins.length > 0  ? (grossWin / wins.length).toFixed(2) : '0';
+    const avgLoss = losses.length > 0 ? (grossLoss / losses.length).toFixed(2) : '0';
+
+    // Best / worst trade
+    const sorted = [...closedTrades].sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+    const bestTrade  = sorted[0];
+    const worstTrade = sorted[sorted.length - 1];
+
+    // Emotion breakdown
+    const emotionMap = {};
+    closedTrades.forEach(t => {
+      if (t.emotionPre) emotionMap[t.emotionPre] = (emotionMap[t.emotionPre] || 0) + 1;
+    });
+
+    // Mistake breakdown
+    const mistakeMap = {};
+    closedTrades.forEach(t => {
+      (t.mistakes || []).forEach(m => { mistakeMap[m] = (mistakeMap[m] || 0) + 1; });
+    });
+
+    // Day-of-week P&L
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const dayPnl = {};
+    closedTrades.forEach(t => {
+      if (!t.date) return;
+      const d = dayNames[new Date(t.date + 'T12:00:00').getDay()];
+      dayPnl[d] = (dayPnl[d] || 0) + (t.pnl || 0);
+    });
+
+    // Rule compliance
+    const totalChecks = ruleChecks.length;
+    const followedChecks = ruleChecks.filter(c => c.followed === 1).length;
+    const complianceScore = totalChecks > 0 ? Math.round((followedChecks / totalChecks) * 100) : null;
+
+    // Most broken rule
+    const brokenByRule = {};
+    ruleChecks.filter(c => c.followed === 0).forEach(c => {
+      brokenByRule[c.rule_text || c.rule_id] = (brokenByRule[c.rule_text || c.rule_id] || 0) + 1;
+    });
+    const mostBroken = Object.entries(brokenByRule).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    // Daily P&L array for trend
+    const dailyPnlMap = {};
+    closedTrades.forEach(t => {
+      if (!t.date) return;
+      dailyPnlMap[t.date] = (dailyPnlMap[t.date] || 0) + (t.pnl || 0);
+    });
+    const dailyPnlArr = Object.entries(dailyPnlMap).sort(([a],[b]) => a.localeCompare(b)).map(([date, pnl]) => ({ date, pnl: +pnl.toFixed(2) }));
+
+    // ── 3. Build Gemma 4 prompt ──
+    const isWeekly = period_type === 'weekly';
+    const label = isWeekly
+      ? `Week of ${period_start} to ${period_end}`
+      : `Month of ${period_start.slice(0, 7)}`;
+
+    const statsBlock = `
+PERIOD: ${label}
+TRADES: ${closedTrades.length} closed trades (${wins.length}W / ${losses.length}L)
+NET P&L: $${netPnl.toFixed(2)}
+WIN RATE: ${winRate}%
+PROFIT FACTOR: ${profitFactor}
+AVG WIN: $${avgWin} | AVG LOSS: $${avgLoss}
+BEST TRADE: ${bestTrade ? `${bestTrade.symbol} +$${bestTrade.pnl?.toFixed(2)} (${bestTrade.setup || 'no setup'}, emotion: ${bestTrade.emotionPre || 'none'})` : 'none'}
+WORST TRADE: ${worstTrade ? `${worstTrade.symbol} $${worstTrade.pnl?.toFixed(2)} (${worstTrade.setup || 'no setup'}, emotion: ${worstTrade.emotionPre || 'none'})` : 'none'}
+EMOTION BREAKDOWN: ${Object.entries(emotionMap).map(([k,v]) => `${k}:${v}`).join(', ') || 'none recorded'}
+MISTAKE BREAKDOWN: ${Object.entries(mistakeMap).map(([k,v]) => `${k}:${v}`).join(', ') || 'none recorded'}
+DAY-OF-WEEK P&L: ${Object.entries(dayPnl).map(([d,p]) => `${d}:$${p.toFixed(0)}`).join(', ') || 'n/a'}
+RULE COMPLIANCE: ${complianceScore !== null ? `${complianceScore}%` : 'not tracked'}
+MOST BROKEN RULE: ${mostBroken || 'none'}
+DAILY P&L SEQUENCE: ${dailyPnlArr.map(d => `${d.date}:${d.pnl > 0 ? '+' : ''}$${d.pnl}`).join(' | ') || 'none'}
+`.trim();
+
+    const journalSnippets = journalRows
+      .filter(r => r.pre_market || r.post_market)
+      .slice(-5)
+      .map(r => `[${r.date}] PRE: ${(r.pre_market || '').substring(0, 120)} | POST: ${(r.post_market || '').substring(0, 120)}`)
+      .join('\n');
+
+    const systemPrompt = `You are a trading psychology coach for a MES/MNQ micro-futures day trader on Apex funded accounts. You write structured, direct, and honest performance recaps. Use the data provided — do not invent numbers. Keep language tight and actionable. Format your response in clean markdown with these exact sections: ## Summary, ## What Worked, ## What Didn't, ## Emotional Patterns, ## Rule Compliance, ## Key Focus for Next ${isWeekly ? 'Week' : 'Month'}. Each section should be 2-4 sentences max. End with one bold coaching note.`;
+
+    const userPrompt = `Write a ${isWeekly ? 'weekly' : 'monthly'} trading recap for this trader.
+
+TRADING DATA:
+${statsBlock}
+
+${journalSnippets ? `JOURNAL SNIPPETS (pre/post market notes):\n${journalSnippets}` : ''}
+
+Write the recap now. Be specific to the numbers. If the period has no trades, say so and give a short forward-looking note instead.`;
+
+    // ── 4. Call Gemma 4 ──
+    const content = await callOllama(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   },
+      ],
+      1200
+    );
+
+    if (!content) throw new Error('Gemma returned empty response');
+
+    // ── 5. Save and return ──
+    const recapId = `${period_type}-${period_start}`;
+    db.prepare(`
+      INSERT OR REPLACE INTO ai_recaps (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
+    `).run(recapId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+
+    const saved = db.prepare('SELECT * FROM ai_recaps WHERE id = ?').get(recapId);
+    res.json(saved);
+
+  } catch (err) {
+    console.error('[/ai_recaps/generate] error:', err.message);
+    res.status(500).json({
+      error: `Recap generation failed: ${err.message}`,
+      hint: `Make sure Ollama is running (ollama serve) and ${OLLAMA_MODEL} is installed`,
+    });
+  }
 });
 
 // ── START ─────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
 import { Trade, TradeStatus, Playbook } from '../types';
 import { ChevronLeft, ChevronRight, ChevronDown, PieChart, Tag, Activity, Clock, Calendar as CalendarIcon, BarChart2, AlertTriangle, Book, Timer } from 'lucide-react';
 
@@ -83,6 +83,73 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
     const costOfMistakes = Math.abs(mistakesTrades.reduce((acc, t) => acc + (t.pnl || 0), 0));
 
     return { totalTrades, wins, losses, totalPnl, winRate, totalR, profitFactor, ev, evR, costOfMistakes };
+  }, [filteredTrades]);
+
+  // --- COMPOSITE PERFORMANCE SCORE ---
+  const compositeScore = useMemo(() => {
+    if (filteredTrades.length < 3) return null;
+
+    const closed = filteredTrades;
+    const winsList  = closed.filter(t => (t.pnl || 0) > 0);
+    const lossList  = closed.filter(t => (t.pnl || 0) < 0);
+    const grossProfit = winsList.reduce((a, t) => a + (t.pnl || 0), 0);
+    const grossLoss   = Math.abs(lossList.reduce((a, t) => a + (t.pnl || 0), 0));
+    const totalPnl    = closed.reduce((a, t) => a + (t.pnl || 0), 0);
+    const winRate     = (winsList.length / closed.length) * 100;
+    const pf          = grossLoss === 0 ? (grossProfit > 0 ? 3 : 0) : grossProfit / grossLoss;
+    const avgWin      = winsList.length > 0 ? grossProfit / winsList.length : 0;
+    const avgLoss     = lossList.length > 0 ? grossLoss  / lossList.length  : 1;
+
+    // 1. Win Rate — 50% = 50pts, 65%+ = 100pts
+    const winScore = Math.min(100, Math.max(0, (winRate / 65) * 100));
+
+    // 2. Profit Factor — 1.0 = 33pts, 3.0+ = 100pts
+    const pfScore = Math.min(100, Math.max(0, (Math.min(pf, 3) / 3) * 100));
+
+    // 3. Avg Win/Loss Ratio — 1.5 = 50pts, 3.0+ = 100pts
+    const rrRatio  = avgWin / (avgLoss || 1);
+    const rrScore  = Math.min(100, Math.max(0, (Math.min(rrRatio, 3) / 3) * 100));
+
+    // 4. Drawdown — lower peak-to-trough vs total pnl = better
+    let peak = 0, maxDD = 0, cum = 0;
+    [...closed].sort((a, b) => a.date.localeCompare(b.date)).forEach(t => {
+      cum += (t.pnl || 0);
+      if (cum > peak) peak = cum;
+      const dd = peak - cum;
+      if (dd > maxDD) maxDD = dd;
+    });
+    const ddRatio      = maxDD / (Math.abs(totalPnl) + maxDD || 1);
+    const drawdownScore = Math.min(100, Math.max(0, (1 - ddRatio) * 100));
+
+    // 5. Consistency — lower coefficient-of-variation = better
+    const pnlVals  = closed.map(t => t.pnl || 0);
+    const avgPnl   = pnlVals.reduce((a, b) => a + b, 0) / pnlVals.length;
+    const stdDev   = Math.sqrt(pnlVals.reduce((a, v) => a + Math.pow(v - avgPnl, 2), 0) / pnlVals.length);
+    const cv       = stdDev / (Math.abs(avgPnl) || 1);
+    const consistScore = Math.min(100, Math.max(0, 100 - Math.min(cv * 25, 100)));
+
+    // 6. Discipline — fewer mistake-tagged trades = better
+    const mistakeTrades = closed.filter(t => t.mistakes && t.mistakes.length > 0).length;
+    const disciplineScore = Math.min(100, Math.max(0, ((closed.length - mistakeTrades) / closed.length) * 100));
+
+    const overall = Math.round(
+      (winScore + pfScore + rrScore + drawdownScore + consistScore + disciplineScore) / 6
+    );
+
+    const scoreColor = overall >= 70 ? '#22c55e' : overall >= 45 ? '#f59e0b' : '#ef4444';
+
+    return {
+      overall,
+      scoreColor,
+      axes: [
+        { subject: 'Win Rate',    score: Math.round(winScore) },
+        { subject: 'Prof. Factor', score: Math.round(pfScore) },
+        { subject: 'Avg W/L',     score: Math.round(rrScore) },
+        { subject: 'Drawdown',    score: Math.round(drawdownScore) },
+        { subject: 'Consistency', score: Math.round(consistScore) },
+        { subject: 'Discipline',  score: Math.round(disciplineScore) },
+      ],
+    };
   }, [filteredTrades]);
 
   // --- CHARTS DATA ---
@@ -478,6 +545,88 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], onNavigat
           </p>
         </div>
       </div>
+
+      {/* COMPOSITE PERFORMANCE SCORE */}
+      {compositeScore && (
+        <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-surfaceHighlight flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BarChart2 size={18} className="text-primary" />
+              <h3 className="text-lg font-semibold text-text">Performance Score</h3>
+            </div>
+            <span className="text-xs text-textMuted">{timeframe === 'all' ? 'All Time' : timeframe}</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
+
+            {/* Score circle */}
+            <div className="flex flex-col items-center justify-center p-8 border-b lg:border-b-0 lg:border-r border-surfaceHighlight">
+              <div className="relative w-32 h-32">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-highlight)" strokeWidth="3" />
+                  <circle
+                    cx="18" cy="18" r="15.9" fill="none"
+                    stroke={compositeScore.scoreColor}
+                    strokeWidth="3"
+                    strokeDasharray={`${compositeScore.overall} 100`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-bold text-text">{compositeScore.overall}</span>
+                  <span className="text-xs text-textMuted">/ 100</span>
+                </div>
+              </div>
+              <p className="mt-3 text-sm font-semibold" style={{ color: compositeScore.scoreColor }}>
+                {compositeScore.overall >= 70 ? 'Strong' : compositeScore.overall >= 45 ? 'Developing' : 'Needs Work'}
+              </p>
+              <p className="text-xs text-textMuted mt-1">Overall score</p>
+            </div>
+
+            {/* Radar chart */}
+            <div className="lg:col-span-2 h-[260px] px-4 py-6">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={compositeScore.axes}>
+                  <PolarGrid stroke="var(--surface-highlight)" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <Radar
+                    name="Score"
+                    dataKey="score"
+                    stroke={compositeScore.scoreColor}
+                    fill={compositeScore.scoreColor}
+                    fillOpacity={0.25}
+                    strokeWidth={2}
+                  />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }}
+                    formatter={(val: number) => [`${val}/100`, 'Score']}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Dimension bar rows */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-surfaceHighlight border-t border-surfaceHighlight">
+            {compositeScore.axes.map(ax => (
+              <div key={ax.subject} className="bg-surface px-4 py-3">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-textMuted">{ax.subject}</span>
+                  <span className="font-mono font-semibold text-text">{ax.score}</span>
+                </div>
+                <div className="w-full bg-surfaceHighlight h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${ax.score}%`,
+                      backgroundColor: ax.score >= 70 ? '#22c55e' : ax.score >= 45 ? '#f59e0b' : '#ef4444',
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* CHARTS SECTION */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
