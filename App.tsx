@@ -24,6 +24,7 @@ const App: React.FC = () => {
   // Navigation State
   const [journalDate, setJournalDate] = useState<string | undefined>(undefined);
   const [focusedTradeId, setFocusedTradeId] = useState<string | null>(null);
+  const [triggerAddTrade, setTriggerAddTrade] = useState(false);
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -521,7 +522,7 @@ const App: React.FC = () => {
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
       
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-surface border-r border-surfaceHighlight flex flex-col transition-transform duration-300 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-sidebarBg border-r border-surfaceHighlight flex flex-col transition-transform duration-300 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
         <div className="p-6 flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg">M</div>
             <span className="font-bold text-xl text-text">Mindful</span>
@@ -566,6 +567,13 @@ const App: React.FC = () => {
           )}
         </div>
 
+        {/* Add Trade Button */}
+        <div className="px-3 mb-4">
+          <button onClick={() => { setView('journal'); setTriggerAddTrade(true); setIsMobileSidebarOpen(false); }} className="w-full bg-primary hover:bg-primary/90 text-white rounded-lg py-2.5 px-4 flex items-center justify-center gap-2 font-medium text-sm transition-colors shadow-sm">
+            <Plus size={18} /> Add Trade
+          </button>
+        </div>
+
         {/* Navigation Links */}
         <nav className="flex-1 px-3 space-y-2">
           {[
@@ -575,7 +583,7 @@ const App: React.FC = () => {
             { id: 'notebook', icon: NotebookIcon, label: 'Notebook' },
             { id: 'analytics', icon: BarChart2, label: 'Analytics' },
             { id: 'calendar', icon: Calendar, label: 'P&L Calendar' },
-            { id: 'rules', icon: ShieldCheck, label: 'Rule Tracker' },
+            { id: 'rules', icon: ShieldCheck, label: 'Progress Tracker' },
             { id: 'recaps', icon: Sparkles, label: 'AI Recaps' },
             { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
             { id: 'settings', icon: SettingsIcon, label: 'Settings' },
@@ -587,34 +595,25 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {/* User Profile & Theme Toggle */}
-        <div className="p-6 border-t border-surfaceHighlight mt-auto">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-surfaceHighlight border border-surfaceHighlight flex items-center justify-center text-xs text-textMuted">JD</div>
-              <div>
-                <p className="text-sm text-text font-medium">John Doe</p>
-                <p className="text-xs text-textMuted">Pro Plan</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setIsDarkMode(!isDarkMode)} 
-              className="p-2 rounded-full text-textMuted hover:bg-surfaceHighlight hover:text-primary transition-all"
-              title="Toggle Theme"
-            >
-              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-          </div>
+        {/* Theme Toggle */}
+        <div className="p-4 border-t border-surfaceHighlight mt-auto flex items-center justify-center">
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2.5 rounded-full text-textMuted hover:bg-surfaceHighlight hover:text-primary transition-all"
+            title="Toggle Theme"
+          >
+            {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
         </div>
       </aside>
 
       {/* Main View */}
       <main className="flex-1 p-6 lg:p-10 overflow-y-auto h-screen">
          <header className="flex justify-between items-center mb-8">
-            <h1 className="text-2xl font-bold text-text capitalize">{view.replace('_', ' ')}</h1>
+            <h1 className="text-2xl font-bold text-text capitalize">{view === 'rules' ? 'Progress Tracker' : view.replace('_', ' ')}</h1>
          </header>
 
-         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onFilterTrades={handleFilterTrades} />}
+         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} ruleChecks={ruleChecks} rules={rules} ruleSettings={ruleSettings} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onNavigateToRules={() => setView('rules')} onFilterTrades={handleFilterTrades} />}
          
          {view === 'analytics' && <Analytics trades={activeTrades} onFilterTrades={handleFilterTrades} />}
          
@@ -631,7 +630,7 @@ const App: React.FC = () => {
 
          {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={() => {}} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={() => {}} />}
          
-         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} />}
+         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} />}
          
          {view === 'calendar' && (
            <PnLCalendar
