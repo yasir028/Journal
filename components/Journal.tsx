@@ -20,9 +20,11 @@ interface JournalProps {
     emotion?: string;
     mistake?: string;
   };
+  autoOpenAddTrade?: boolean;
+  onAddTradeOpened?: () => void;
 }
 
-const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters }) => {
+const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened }) => {
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL'>('MONTH');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -111,6 +113,14 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   useEffect(() => {
     if (!floatingView) setZoom(100);
   }, [floatingView]);
+
+  // Auto-open add trade modal when triggered from sidebar
+  useEffect(() => {
+    if (autoOpenAddTrade) {
+      openAddModal();
+      onAddTradeOpened?.();
+    }
+  }, [autoOpenAddTrade]);
 
   const clearFilters = () => {
     setFilterSymbol('');

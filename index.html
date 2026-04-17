@@ -9,30 +9,32 @@
     <style>
       :root {
         /* Light Mode Colors */
-        --bg: #f8fafc;           /* slate-50 */
-        --surface: #ffffff;      /* white */
-        --surface-highlight: #f1f5f9; /* slate-100 */
-        --text: #0f172a;         /* slate-900 */
-        --text-muted: #64748b;   /* slate-500 */
-        --primary: #3b82f6;      /* blue-500 */
-        --accent: #8b5cf6;       /* violet-500 */
-        --success: #22c55e;      /* green-500 */
-        --danger: #ef4444;       /* red-500 */
-        --border: #e2e8f0;       /* slate-200 */
+        --bg: #f8fafc;
+        --surface: #ffffff;
+        --surface-highlight: #f1f5f9;
+        --text: #0f172a;
+        --text-muted: #64748b;
+        --primary: #3b82f6;
+        --accent: #8b5cf6;
+        --success: #22c55e;
+        --danger: #ef4444;
+        --border: #e2e8f0;
+        --sidebar-bg: #ede9f6;
       }
 
       .dark {
-        /* Dark Mode Colors */
-        --bg: #0f1114;
-        --surface: #16191d;
-        --surface-highlight: #1c2127;
+        /* Dark Mode Colors — navy-purple palette */
+        --bg: #0d0b1a;
+        --surface: #1a1625;
+        --surface-highlight: #252136;
         --text: #e2e8f0;
         --text-muted: #94a3b8;
         --primary: #3b82f6;
         --accent: #8b5cf6;
         --success: #22c55e;
         --danger: #ef4444;
-        --border: #2d3748;
+        --border: #332d4a;
+        --sidebar-bg: #1e1535;
       }
 
       body {
@@ -135,6 +137,7 @@
               background: 'var(--bg)',
               surface: 'var(--surface)',
               surfaceHighlight: 'var(--surface-highlight)',
+              sidebarBg: 'var(--sidebar-bg)',
               primary: 'var(--primary)',
               accent: 'var(--accent)',
               success: 'var(--success)',
