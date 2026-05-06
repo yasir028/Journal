@@ -115,6 +115,45 @@ export const generateDailyAffirmation = async (): Promise<string> => {
   }
 };
 
+// ── generatePsychProfile ────────────────────────────────────────
+// Generates a deep psychological profile for a given period.
+// The backend builds full context and uses a detailed psych prompt.
+//
+// @param periodType  'daily' | 'weekly' | 'monthly' | 'yearly'
+// @param start       Start date YYYY-MM-DD
+// @param end         End date YYYY-MM-DD
+//
+export const generatePsychProfile = async (
+  periodType: string,
+  start: string,
+  end: string
+): Promise<any> => {
+  const res = await fetch('/psych_profiles/generate', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Server error ${res.status}`);
+  }
+
+  return await res.json();
+};
+
+// ── fetchPsychProfiles ──────────────────────────────────────────
+export const fetchPsychProfiles = async (): Promise<any[]> => {
+  const res = await fetch('/psych_profiles');
+  if (!res.ok) return [];
+  return await res.json();
+};
+
+// ── deletePsychProfile ──────────────────────────────────────────
+export const deletePsychProfile = async (id: string): Promise<void> => {
+  await fetch(`/psych_profiles/${id}`, { method: 'DELETE' });
+};
+
 // ── checkOllamaStatus ────────────────────────────────────────────
 // Returns whether Ollama is running and which models are available.
 // Use this to show a setup prompt if Ollama is not detected.

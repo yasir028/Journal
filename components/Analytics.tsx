@@ -1,34 +1,88 @@
 import React, { useState, useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ScatterChart, Scatter, ReferenceLine, Legend, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { Trade, TradeStatus, TradeType } from '../types';
-import { Calendar, Clock, BarChart2, TrendingUp, TrendingDown, Activity, AlertTriangle, Target, DollarSign, Filter, BrainCircuit, Zap, Timer, Award, TrendingDown as StreakDown, TrendingUp as StreakUp, Flame } from 'lucide-react';
+import { Trade, TradeStatus, TradeType, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile as PsychProfileType, PsychProfilePeriod, DeepAnalysis as DeepAnalysisType, DeepAnalysisPeriod } from '../types';
+import { Calendar as CalendarIcon, Clock, BarChart2, TrendingUp, TrendingDown, Activity, AlertTriangle, Target, DollarSign, Filter, BrainCircuit, Zap, Timer, Award, TrendingDown as StreakDown, TrendingUp as StreakUp, Flame, ShieldCheck, Sparkles, Globe, GitCompare, Brain } from 'lucide-react';
+import PnLCalendar from './PnLCalendar';
+import RuleTracker from './RuleTracker';
+import AIRecaps from './AIRecaps';
+import DeepAnalysis from './DeepAnalysis';
+import PsychProfile from './PsychProfile';
+
+type AnalyticsTab = 'performance' | 'calendar' | 'progress' | 'recaps';
 
 interface AnalyticsProps {
   trades: Trade[];
   onFilterTrades?: (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => void;
+  // Calendar props
+  onNavigateToDay?: (date: string) => void;
+  // Progress Tracker props
+  rules?: Rule[];
+  ruleChecks?: RuleCheck[];
+  ruleSettings?: RuleSettings;
+  onAddRule?: (rule: Rule) => void;
+  onUpdateRule?: (rule: Rule) => void;
+  onDeleteRule?: (id: string) => void;
+  onToggleCheck?: (check: RuleCheck) => void;
+  onUpdateSettings?: (s: RuleSettings) => void;
+  onResetProgress?: () => void;
+  // AI Recaps props
+  aiRecaps?: AIRecap[];
+  onGenerateRecap?: (type: RecapPeriodType, start: string, end: string) => Promise<void>;
+  onDeleteRecap?: (id: string) => void;
+  // Deep Analysis props
+  deepAnalyses?: DeepAnalysisType[];
+  onGenerateDeepAnalysis?: (type: DeepAnalysisPeriod, start: string, end: string) => Promise<void>;
+  onDeleteDeepAnalysis?: (id: string) => void;
+  // Psych Profile props
+  psychProfiles?: PsychProfileType[];
+  onGeneratePsychProfile?: (type: PsychProfilePeriod, start: string, end: string) => Promise<void>;
+  onDeletePsychProfile?: (id: string) => void;
 }
 
-const Analytics: React.FC<AnalyticsProps> = ({ trades, onFilterTrades }) => {
-  const [timeRange, setTimeRange] = useState<'30d' | '90d' | 'YTD' | 'ALL'>('ALL');
+const TABS: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
+  { id: 'performance', label: 'Performance', icon: BarChart2 },
+  { id: 'calendar', label: 'Calendar', icon: CalendarIcon },
+  { id: 'progress', label: 'Progress Tracker', icon: ShieldCheck },
+  { id: 'recaps', label: 'Recaps & Insights', icon: Sparkles },
+];
+
+const Analytics: React.FC<AnalyticsProps> = ({
+  trades, onFilterTrades,
+  onNavigateToDay,
+  rules = [], ruleChecks = [], ruleSettings = { trading_days: ['Mon','Tue','Wed','Thu','Fri'] },
+  onAddRule, onUpdateRule, onDeleteRule, onToggleCheck, onUpdateSettings, onResetProgress,
+  aiRecaps = [], onGenerateRecap, onDeleteRecap,
+  deepAnalyses = [], onGenerateDeepAnalysis, onDeleteDeepAnalysis,
+  psychProfiles = [], onGeneratePsychProfile, onDeletePsychProfile,
+}) => {
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>('performance');
+  const [recapsSubTab, setRecapsSubTab] = useState<'recaps' | 'deep' | 'psych'>('recaps');
+  const [timeRange, setTimeRange] = useState<'30d' | '90d' | 'YTD' | 'ALL' | 'custom'>('ALL');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd,   setCustomEnd]   = useState('');
 
   // --- FILTERING ---
   const filteredTrades = useMemo(() => {
     let data = trades.filter(t => t.status === TradeStatus.CLOSED);
     
-    const now = new Date();
     if (timeRange === '30d') {
-      const past = new Date(); past.setDate(now.getDate() - 30);
-      data = data.filter(t => new Date(t.date) >= past);
+      const past = new Date(); past.setDate(past.getDate() - 30);
+      const cutoff = past.toISOString().split('T')[0];
+      data = data.filter(t => t.date >= cutoff);
     } else if (timeRange === '90d') {
-      const past = new Date(); past.setDate(now.getDate() - 90);
-      data = data.filter(t => new Date(t.date) >= past);
+      const past = new Date(); past.setDate(past.getDate() - 90);
+      const cutoff = past.toISOString().split('T')[0];
+      data = data.filter(t => t.date >= cutoff);
     } else if (timeRange === 'YTD') {
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      data = data.filter(t => new Date(t.date) >= startOfYear);
+      const cutoff = `${new Date().getFullYear()}-01-01`;
+      data = data.filter(t => t.date >= cutoff);
+    } else if (timeRange === 'custom') {
+      if (customStart) data = data.filter(t => t.date >= customStart);
+      if (customEnd)   data = data.filter(t => t.date <= customEnd);
     }
-    
-    return data.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [trades, timeRange]);
+
+    return data.sort((a, b) => a.date.localeCompare(b.date));
+  }, [trades, timeRange, customStart, customEnd]);
 
   // --- CALCULATIONS ---
   const stats = useMemo(() => {
@@ -352,24 +406,138 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades, onFilterTrades }) => {
   }, [filteredTrades]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      
+    <div className="space-y-6 animate-in fade-in duration-500">
+
+      {/* ═══════ TAB BAR ═══════ */}
+      <div className="border-b border-surfaceHighlight">
+        <div className="flex items-center gap-1 -mb-px">
+          {TABS.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  isActive
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-textMuted hover:text-text hover:border-surfaceHighlight'
+                }`}
+              >
+                <Icon size={16} />
+                {tab.label}
+                {tab.id === 'performance' && (
+                  <span className="text-[9px] bg-primary text-white px-1.5 py-0.5 rounded font-bold uppercase">New</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ═══════ CALENDAR TAB ═══════ */}
+      {activeTab === 'calendar' && (
+        <PnLCalendar trades={trades} onNavigateToDay={onNavigateToDay} />
+      )}
+
+      {/* ═══════ PROGRESS TRACKER TAB ═══════ */}
+      {activeTab === 'progress' && onAddRule && onUpdateRule && onDeleteRule && onToggleCheck && onUpdateSettings && onResetProgress && (
+        <RuleTracker
+          rules={rules}
+          ruleChecks={ruleChecks}
+          ruleSettings={ruleSettings}
+          trades={trades}
+          onAddRule={onAddRule}
+          onUpdateRule={onUpdateRule}
+          onDeleteRule={onDeleteRule}
+          onToggleCheck={onToggleCheck}
+          onUpdateSettings={onUpdateSettings}
+          onResetProgress={onResetProgress}
+        />
+      )}
+
+      {/* ═══════ RECAPS & INSIGHTS TAB ═══════ */}
+      {activeTab === 'recaps' && (
+        <div className="space-y-6">
+          {/* Sub-tab bar */}
+          <div className="flex gap-1 bg-surfaceHighlight/40 rounded-lg p-1 w-fit">
+            {([
+              { id: 'recaps' as const, label: 'Recaps', icon: Sparkles },
+              { id: 'deep' as const, label: 'Deep Analysis', icon: Brain },
+              { id: 'psych' as const, label: 'Psych Profile', icon: BrainCircuit },
+            ]).map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setRecapsSubTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    recapsSubTab === tab.id
+                      ? 'bg-surface text-text shadow-sm'
+                      : 'text-textMuted hover:text-text'
+                  }`}
+                >
+                  <Icon size={14} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sub-tab content */}
+          {recapsSubTab === 'recaps' && onGenerateRecap && onDeleteRecap && (
+            <AIRecaps recaps={aiRecaps} trades={trades} onGenerate={onGenerateRecap} onDelete={onDeleteRecap} />
+          )}
+
+          {recapsSubTab === 'deep' && onGenerateDeepAnalysis && onDeleteDeepAnalysis && (
+            <DeepAnalysis analyses={deepAnalyses} trades={trades} onGenerate={onGenerateDeepAnalysis} onDelete={onDeleteDeepAnalysis} />
+          )}
+
+          {recapsSubTab === 'psych' && onGeneratePsychProfile && onDeletePsychProfile && (
+            <PsychProfile profiles={psychProfiles} trades={trades} onGenerate={onGeneratePsychProfile} onDelete={onDeletePsychProfile} />
+          )}
+        </div>
+      )}
+
+      {/* ═══════ PERFORMANCE TAB ═══════ */}
+      {activeTab === 'performance' && (
+      <div className="space-y-8">
+
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-text">Advanced Analytics</h2>
             <p className="text-textMuted text-sm">Deep dive optimization metrics</p>
           </div>
-          <div className="flex bg-surfaceHighlight p-1 rounded-lg">
-            {['30d', '90d', 'YTD', 'ALL'].map(r => (
-                <button 
+          <div className="flex items-center gap-2">
+            <div className="flex bg-surfaceHighlight p-1 rounded-lg">
+              {(['30d', '90d', 'YTD', 'ALL', 'custom'] as const).map(r => (
+                <button
                   key={r}
-                  onClick={() => setTimeRange(r as any)}
+                  onClick={() => setTimeRange(r)}
                   className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${timeRange === r ? 'bg-primary text-white shadow' : 'text-textMuted hover:text-text'}`}
                 >
-                  {r}
+                  {r === 'custom' ? 'Custom' : r}
                 </button>
-            ))}
+              ))}
+            </div>
+            {timeRange === 'custom' && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={e => setCustomStart(e.target.value)}
+                  className="bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+                />
+                <span className="text-textMuted text-xs">–</span>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={e => setCustomEnd(e.target.value)}
+                  className="bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+                />
+              </div>
+            )}
           </div>
       </div>
 
@@ -883,6 +1051,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ trades, onFilterTrades }) => {
           </table>
         </div>
       </div>
+
+      </div>
+      )}
 
     </div>
   );

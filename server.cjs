@@ -129,6 +129,28 @@ db.exec(`
     net_pnl      REAL DEFAULT 0
   );
 
+  CREATE TABLE IF NOT EXISTS deep_analyses (
+    id           TEXT PRIMARY KEY,
+    period_type  TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    generated_at TEXT DEFAULT (datetime('now')),
+    trade_count  INTEGER DEFAULT 0,
+    net_pnl      REAL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS psych_profiles (
+    id           TEXT PRIMARY KEY,
+    period_type  TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    generated_at TEXT DEFAULT (datetime('now')),
+    trade_count  INTEGER DEFAULT 0,
+    net_pnl      REAL DEFAULT 0
+  );
+
   CREATE INDEX IF NOT EXISTS idx_trades_date      ON trades (date DESC);
   CREATE INDEX IF NOT EXISTS idx_trades_accountId ON trades (accountId, date DESC);
   CREATE INDEX IF NOT EXISTS idx_trades_symbol    ON trades (symbol);
@@ -297,6 +319,55 @@ app.put('/trades/:id', (req, res) => {
 app.delete('/trades/:id', (req, res) => {
   db.prepare('DELETE FROM trades WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+// ── BATCH IMPORT (Tradovate) ────────────────────────────────────
+app.post('/trades/batch', (req, res) => {
+  const { trades } = req.body;
+  if (!Array.isArray(trades) || trades.length === 0) {
+    return res.status(400).json({ error: 'trades array is required' });
+  }
+
+  const existing = db.prepare('SELECT id FROM trades').all().map(r => r.id);
+  const existingSet = new Set(existing);
+
+  const insertStmt = db.prepare(`
+    INSERT INTO trades (
+      id, accountId, symbol, instrument, type, entryPrice, exitPrice,
+      stopLoss, quantity, status, pnl, fees, r, date, entryTime, exitTime,
+      setup, playbookId, notes, emotionPre, emotionPost, mistakes,
+      imageUrl, imageUrls, audioUrl, tags, exits
+    ) VALUES (
+      @id, @accountId, @symbol, @instrument, @type, @entryPrice, @exitPrice,
+      @stopLoss, @quantity, @status, @pnl, @fees, @r, @date, @entryTime, @exitTime,
+      @setup, @playbookId, @notes, @emotionPre, @emotionPost, @mistakes,
+      @imageUrl, @imageUrls, @audioUrl, @tags, @exits
+    )
+  `);
+
+  let imported = 0;
+  let skipped = 0;
+
+  const batchInsert = db.transaction((tradeList) => {
+    for (const trade of tradeList) {
+      if (existingSet.has(trade.id)) {
+        skipped++;
+        continue;
+      }
+      try {
+        insertStmt.run(tradeToRow(trade));
+        imported++;
+      } catch (err) {
+        console.error(`[batch import] failed for trade ${trade.id}:`, err.message);
+        skipped++;
+      }
+    }
+  });
+
+  batchInsert(trades);
+
+  const allTrades = db.prepare('SELECT * FROM trades ORDER BY date DESC, entryTime DESC').all().map(rowToTrade);
+  res.json({ imported, skipped, trades: allTrades });
 });
 
 // ── DAILY ANALYSIS (Pre-Market) ─────────────────────────────────
@@ -862,6 +933,242 @@ Write the recap now. Be specific to the numbers. If the period has no trades, sa
     console.error('[/ai_recaps/generate] error:', err.message);
     res.status(500).json({
       error: `Recap generation failed: ${err.message}`,
+      hint: `Make sure Ollama is running (ollama serve) and ${OLLAMA_MODEL} is installed`,
+    });
+  }
+});
+
+// ── GET /deep_analyses — list all saved deep analyses ────────────
+app.get('/deep_analyses', (req, res) => {
+  const rows = db.prepare('SELECT * FROM deep_analyses ORDER BY period_start DESC').all();
+  res.json(rows);
+});
+
+// ── DELETE /deep_analyses/:id ────────────────────────────────────
+app.delete('/deep_analyses/:id', (req, res) => {
+  db.prepare('DELETE FROM deep_analyses WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ── POST /deep_analyses/generate ─────────────────────────────────
+// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end }
+app.post('/deep_analyses/generate', async (req, res) => {
+  try {
+    const { period_type, period_start, period_end } = req.body;
+    if (!period_type || !period_start || !period_end) {
+      return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
+    }
+
+    // ── 1. Fetch raw data for the period ──
+    const trades = db.prepare(
+      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end).map(rowToTrade);
+
+    const journalRows = db.prepare(
+      'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end);
+
+    const notes = db.prepare('SELECT * FROM notes ORDER BY createdAt DESC').all()
+      .map(r => ({ ...r, tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })() }));
+
+    const contextData = { trades, journal: journalRows, notes };
+    const context = buildContextString(contextData, 365);
+
+    const closedTrades = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+    const netPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+
+    if (closedTrades.length === 0 && journalRows.length === 0) {
+      return res.json({
+        id: `deep-${period_type}-${period_start}`,
+        period_type, period_start, period_end,
+        content: 'Not enough data to analyze for this period. Log some trades and write pre/post-market notes first.',
+        generated_at: new Date().toISOString(),
+        trade_count: 0, net_pnl: 0
+      });
+    }
+
+    // ── 2. Build prompt (same as /ai/analyze) ──
+    const systemPrompt = `You are an elite trading psychologist with 20 years experience coaching professional traders. You specialize in uncovering the gap between a trader's stated intentions and their actual execution — the patterns they cannot see because they are too close to their own behavior. You analyze journal data with surgical precision. You are direct, specific, and evidence-based. You never give generic advice.`;
+
+    const userPrompt = `Analyze this trader's complete journal data. Surface the behavioral patterns and nuances they are NOT consciously aware of. Use specific dates and examples from the data as evidence.
+
+Investigate the following:
+
+1. INTENTION vs EXECUTION GAP
+Compare their pre-market plans to what they actually traded. Did they follow their own plan? Identify specific dates where the stated thesis and actual trades diverged.
+
+2. EMOTIONAL SEQUENCING
+Map how emotions evolve across sessions. Look for dangerous sequences (e.g. Confident → trade losses → Frustrated → more trades). Which emotion states predict their worst outcomes?
+
+3. RULE VIOLATIONS
+Their stated rules are listed above. Cross-reference against actual behavior. Which rules do they break most? Under exactly what circumstances — after wins, after losses, at specific times?
+
+4. SELF-AWARENESS IN REVIEWS
+In their post-market reviews, are they diagnosing the real cause of losses (ownership language: "I ignored my plan") or rationalizing (victim language: "the market was choppy")? Give specific examples.
+
+5. HIDDEN STATISTICAL TELLS
+Look for patterns across the data: performance by setup type, emotion before trade vs outcome correlation, mistake frequency trends.
+
+6. NUANCES THEY ARE MISSING
+What is the ONE pattern running through all their bad trading days that they have not named explicitly in their own notes?
+
+Output format: 6 numbered observations, each with a specific quote or data point from their journal as evidence. End with 2 concrete behavioral changes to implement this week.
+
+JOURNAL DATA:
+${context}`;
+
+    // ── 3. Call Gemma 4 ──
+    const content = await callOllama(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   },
+      ],
+      2500
+    );
+
+    if (!content) throw new Error('Gemma returned empty response');
+
+    // ── 4. Save and return ──
+    const analysisId = `deep-${period_type}-${period_start}`;
+    db.prepare(`
+      INSERT OR REPLACE INTO deep_analyses (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
+    `).run(analysisId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+
+    const saved = db.prepare('SELECT * FROM deep_analyses WHERE id = ?').get(analysisId);
+    res.json(saved);
+
+  } catch (err) {
+    console.error('[/deep_analyses/generate] error:', err.message);
+    res.status(500).json({
+      error: `Deep analysis generation failed: ${err.message}`,
+      hint: `Make sure Ollama is running (ollama serve) and ${OLLAMA_MODEL} is installed`,
+    });
+  }
+});
+
+// ── GET /psych_profiles — list all saved profiles ────────────────
+app.get('/psych_profiles', (req, res) => {
+  const rows = db.prepare('SELECT * FROM psych_profiles ORDER BY period_start DESC').all();
+  res.json(rows);
+});
+
+// ── DELETE /psych_profiles/:id ───────────────────────────────────
+app.delete('/psych_profiles/:id', (req, res) => {
+  db.prepare('DELETE FROM psych_profiles WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ── POST /psych_profiles/generate ────────────────────────────────
+// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end }
+app.post('/psych_profiles/generate', async (req, res) => {
+  try {
+    const { period_type, period_start, period_end } = req.body;
+    if (!period_type || !period_start || !period_end) {
+      return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
+    }
+
+    // ── 1. Fetch raw data for the period ──
+    const trades = db.prepare(
+      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end).map(rowToTrade);
+
+    const journalRows = db.prepare(
+      'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
+    ).all(period_start, period_end);
+
+    const notes = db.prepare('SELECT * FROM notes ORDER BY createdAt DESC').all()
+      .map(r => ({ ...r, tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })() }));
+
+    const ruleChecks = db.prepare(
+      'SELECT rc.*, r.text as rule_text FROM rule_checks rc LEFT JOIN rules r ON rc.rule_id = r.id WHERE rc.date >= ? AND rc.date <= ?'
+    ).all(period_start, period_end);
+
+    // ── 2. Build rich context ──
+    const contextData = { trades, journal: journalRows, notes };
+    const context = buildContextString(contextData, 365);
+
+    // Aggregated stats
+    const closedTrades = trades.filter(t => t.status === 'CLOSED' && t.pnl != null);
+    const wins = closedTrades.filter(t => (t.pnl || 0) > 0);
+    const losses = closedTrades.filter(t => (t.pnl || 0) < 0);
+    const netPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+
+    // Rule compliance
+    const totalChecks = ruleChecks.length;
+    const followedChecks = ruleChecks.filter(c => c.followed === 1).length;
+    const complianceScore = totalChecks > 0 ? Math.round((followedChecks / totalChecks) * 100) : null;
+
+    const periodLabel = period_type === 'daily' ? period_start
+      : period_type === 'weekly' ? `Week of ${period_start} to ${period_end}`
+      : period_type === 'monthly' ? `Month of ${period_start.slice(0, 7)}`
+      : `Year ${period_start.slice(0, 4)}`;
+
+    // ── 3. Build Gemma 4 prompt — user's psychological profile prompt ──
+    const systemPrompt = `You are an elite psychologist and behavioral analyst with 25 years of experience studying peak performance under pressure. You specialize in analyzing trading journals to map the psychological landscape of a trader — their emotional patterns, cognitive biases, defense mechanisms, identity formation, and developmental trajectory. You use textual evidence to support every observation. You are precise, empathetic but direct, and never generic. You do not diagnose — you illuminate patterns, processes, and dynamics.`;
+
+    const userPrompt = `Analyse the attached text (daily trading journal entries) to identify indicators of the subject's psychological state and developmental trajectory. Move beyond surface meaning. Consider emotional, cognitive, relational, motivational, and identity-related dimensions. Linguistic features should inform the analysis, but not dominate it.
+
+Period: ${periodLabel}
+Stats: ${closedTrades.length} trades (${wins.length}W/${losses.length}L), Net P&L: $${netPnl.toFixed(2)}${complianceScore !== null ? `, Rule Compliance: ${complianceScore}%` : ''}
+
+Examine in particular:
+
+**Emotional landscape** – dominant emotions, suppressed or displaced affect, emotional stability vs. volatility.
+
+**Self-concept & identity** – self-description, implicit beliefs about self-worth, competence, belonging, autonomy.
+
+**Agency & control** – perceived control over events, responsibility-taking vs. externalization, learned helplessness vs. initiative.
+
+**Cognitive framing** – thinking patterns (rigidity vs. flexibility, integrative vs. fragmented reasoning, catastrophizing, idealization/devaluation).
+
+**Relational dynamics** – attachment signals, trust/distrust, dependency, boundaries, interpersonal positioning.
+
+**Motivation & needs** – underlying drives (security, recognition, control, connection, achievement), approach vs. avoidance orientation.
+
+**Conflict & defense mechanisms** – avoidance, rationalization, projection, intellectualization, minimization, etc.
+
+**Developmental movement** – signs of growth, regression, integration, internal conflict resolution, identity consolidation or diffusion across the text.
+
+Use textual evidence where relevant, but integrate broader psychological interpretation.
+
+Structure the output as:
+1. **Key observations** (with brief textual references)
+2. **Psychological interpretation**
+3. **Alternative interpretations** (if plausible)
+4. **Confidence level** (low / moderate / high)
+5. **Progression over time**
+
+Avoid clinical diagnoses. Focus on patterns, processes, and developmental dynamics rather than labels.
+
+JOURNAL DATA:
+${context}`;
+
+    // ── 4. Call Gemma 4 ──
+    const content = await callOllama(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt   },
+      ],
+      3000
+    );
+
+    if (!content) throw new Error('Gemma returned empty response');
+
+    // ── 5. Save and return ──
+    const profileId = `psych-${period_type}-${period_start}`;
+    db.prepare(`
+      INSERT OR REPLACE INTO psych_profiles (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
+    `).run(profileId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+
+    const saved = db.prepare('SELECT * FROM psych_profiles WHERE id = ?').get(profileId);
+    res.json(saved);
+
+  } catch (err) {
+    console.error('[/psych_profiles/generate] error:', err.message);
+    res.status(500).json({
+      error: `Psych profile generation failed: ${err.message}`,
       hint: `Make sure Ollama is running (ollama serve) and ${OLLAMA_MODEL} is installed`,
     });
   }

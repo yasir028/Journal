@@ -11,7 +11,8 @@ import RuleTracker from './components/RuleTracker';
 import AIRecaps from './components/AIRecaps';
 import PnLCalendar from './components/PnLCalendar';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
-import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType } from './types';
+import MindfulLogo from './components/MindfulLogo';
+import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile, PsychProfilePeriod, DeepAnalysis, DeepAnalysisPeriod } from './types';
 
 // ─── API CONFIGURATION ────────────────────────────────────────
 // Vite proxies /api → http://localhost:3001 (see vite.config.ts)
@@ -51,6 +52,12 @@ const App: React.FC = () => {
 
   // AI Recaps
   const [aiRecaps, setAiRecaps] = useState<AIRecap[]>([]);
+
+  // Deep Analyses
+  const [deepAnalyses, setDeepAnalyses] = useState<DeepAnalysis[]>([]);
+
+  // Psych Profiles
+  const [psychProfiles, setPsychProfiles] = useState<PsychProfile[]>([]);
 
   // Settings & Analysis
   const [dailyAnalysis, setDailyAnalysis] = useState<DailyAnalysis>({});
@@ -140,6 +147,14 @@ const App: React.FC = () => {
         // 10. Load AI Recaps
         const recapsRes = await fetch(`${API_URL}/ai_recaps`);
         if (recapsRes.ok) setAiRecaps(await recapsRes.json());
+
+        // 11. Load Deep Analyses
+        const deepRes = await fetch(`${API_URL}/deep_analyses`);
+        if (deepRes.ok) setDeepAnalyses(await deepRes.json());
+
+        // 12. Load Psych Profiles
+        const psychRes = await fetch(`${API_URL}/psych_profiles`);
+        if (psychRes.ok) setPsychProfiles(await psychRes.json());
 
       } catch (error) {
         console.error("Could not load data.", error);
@@ -312,6 +327,20 @@ const App: React.FC = () => {
     addToast(`Successfully imported ${count} trades!`);
   };
 
+  // --- BATCH IMPORT (Tradovate) ---
+  const handleBatchImport = async (importedTrades: Trade[]): Promise<{ imported: number; skipped: number }> => {
+    const res = await fetch(`${API_URL}/trades/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trades: importedTrades.map(t => ({ ...t, accountId: activeAccountId })) })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Batch import failed');
+    setTrades(result.trades);
+    addToast(`Imported ${result.imported} trade${result.imported !== 1 ? 's' : ''} from Tradovate${result.skipped > 0 ? ` (${result.skipped} duplicates skipped)` : ''}`);
+    return { imported: result.imported, skipped: result.skipped };
+  };
+
   // --- ACCOUNT HANDLERS ---
   const handleSaveNewAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,6 +490,66 @@ const App: React.FC = () => {
     } catch { addToast('Failed to delete recap.', 'error'); }
   };
 
+  const handleGenerateDeepAnalysis = async (periodType: DeepAnalysisPeriod, start: string, end: string) => {
+    try {
+      const res = await fetch(`${API_URL}/deep_analyses/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Generation failed');
+      }
+      const saved: DeepAnalysis = await res.json();
+      setDeepAnalyses(prev => {
+        const filtered = prev.filter(a => a.id !== saved.id);
+        return [saved, ...filtered];
+      });
+      addToast('Deep analysis generated!');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to generate analysis.', 'error');
+    }
+  };
+
+  const handleDeleteDeepAnalysis = async (id: string) => {
+    try {
+      await fetch(`${API_URL}/deep_analyses/${id}`, { method: 'DELETE' });
+      setDeepAnalyses(prev => prev.filter(a => a.id !== id));
+      addToast('Analysis deleted.', 'info');
+    } catch { addToast('Failed to delete analysis.', 'error'); }
+  };
+
+  const handleGeneratePsychProfile = async (periodType: PsychProfilePeriod, start: string, end: string) => {
+    try {
+      const res = await fetch(`${API_URL}/psych_profiles/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Generation failed');
+      }
+      const saved: PsychProfile = await res.json();
+      setPsychProfiles(prev => {
+        const filtered = prev.filter(p => p.id !== saved.id);
+        return [saved, ...filtered];
+      });
+      addToast('Psychological profile generated!');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to generate profile.', 'error');
+    }
+  };
+
+  const handleDeletePsychProfile = async (id: string) => {
+    try {
+      await fetch(`${API_URL}/psych_profiles/${id}`, { method: 'DELETE' });
+      setPsychProfiles(prev => prev.filter(p => p.id !== id));
+      addToast('Profile deleted.', 'info');
+    } catch { addToast('Failed to delete profile.', 'error'); }
+  };
+
   const handleToggleCheck = async (check: RuleCheck) => {
     try {
       await fetch(`${API_URL}/rule_checks`, {
@@ -503,15 +592,29 @@ const App: React.FC = () => {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
+  useEffect(() => {
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 58"><defs><linearGradient id="fg" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#1d4ed8"/><stop offset="100%" stop-color="#60a5fa"/></linearGradient></defs><rect x="0" y="2" width="10" height="56" rx="2" fill="url(#fg)"/><polygon points="10,2 18,2 20,44 12,44" fill="url(#fg)"/><polygon points="42,2 50,2 48,44 40,44" fill="url(#fg)"/><rect x="50" y="2" width="10" height="56" rx="2" fill="url(#fg)"/><rect x="20" y="44" width="5.5" height="14" rx="1.5" fill="url(#fg)"/><rect x="27" y="34" width="5.5" height="24" rx="1.5" fill="url(#fg)"/><rect x="34" y="24" width="5.5" height="34" rx="1.5" fill="url(#fg)"/></svg>`;
+    const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+    let link = document.querySelector("link[rel='icon']") as HTMLLinkElement;
+    if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+    link.type = 'image/svg+xml';
+    link.href = dataUri;
+  }, []);
+
+  useEffect(() => {
+    const label = view === 'rules' ? 'Progress Tracker' : view.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+    document.title = `${label} — Mindful`;
+  }, [view]);
+
   // --- LOADING SCREEN ---
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-textMuted text-sm">Connecting to local database...</p>
-          <p className="text-textMuted text-xs mt-2 opacity-60">Make sure <code>node server.cjs</code> is running</p>
-        </div>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center animate-fadeIn">
+        <MindfulLogo size={64} />
+        <h1 className="text-2xl font-bold text-text tracking-[0.25em] mt-5">MINDFUL</h1>
+        <p className="text-[0.65rem] tracking-[0.2em] text-textMuted mt-1.5">TRACK. ANALYZE. MASTER.</p>
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mt-10" />
+        <p className="text-textMuted text-xs mt-4 opacity-60">Connecting to local database...</p>
       </div>
     );
   }
@@ -523,9 +626,11 @@ const App: React.FC = () => {
       
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-sidebarBg border-r border-surfaceHighlight flex flex-col transition-transform duration-300 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
-        <div className="p-6 flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg">M</div>
-            <span className="font-bold text-xl text-text">Mindful</span>
+        <div className="p-6 flex items-center gap-3 group cursor-default">
+            <div className="transition-transform duration-200 group-hover:scale-110">
+              <MindfulLogo size={32} />
+            </div>
+            <span className="font-bold text-xl text-text tracking-[0.15em]">MINDFUL</span>
         </div>
 
         {/* Account Switcher */}
@@ -582,9 +687,6 @@ const App: React.FC = () => {
             { id: 'daily_journal', icon: Calendar, label: 'Daily Journal' },
             { id: 'notebook', icon: NotebookIcon, label: 'Notebook' },
             { id: 'analytics', icon: BarChart2, label: 'Analytics' },
-            { id: 'calendar', icon: Calendar, label: 'P&L Calendar' },
-            { id: 'rules', icon: ShieldCheck, label: 'Progress Tracker' },
-            { id: 'recaps', icon: Sparkles, label: 'AI Recaps' },
             { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
             { id: 'settings', icon: SettingsIcon, label: 'Settings' },
           ].map(item => (
@@ -608,14 +710,41 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main View */}
-      <main className="flex-1 p-6 lg:p-10 overflow-y-auto h-screen">
+      <main className="flex-1 p-6 lg:p-10 overflow-y-auto h-screen relative">
+         <div className="fixed bottom-6 right-6 pointer-events-none opacity-[0.04] z-0">
+           <MindfulLogo size={100} />
+         </div>
          <header className="flex justify-between items-center mb-8">
             <h1 className="text-2xl font-bold text-text capitalize">{view === 'rules' ? 'Progress Tracker' : view.replace('_', ' ')}</h1>
          </header>
 
-         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} ruleChecks={ruleChecks} rules={rules} ruleSettings={ruleSettings} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onNavigateToRules={() => setView('rules')} onFilterTrades={handleFilterTrades} />}
+         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} ruleChecks={ruleChecks} rules={rules} ruleSettings={ruleSettings} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onNavigateToRules={() => setView('analytics')} onFilterTrades={handleFilterTrades} />}
          
-         {view === 'analytics' && <Analytics trades={activeTrades} onFilterTrades={handleFilterTrades} />}
+         {view === 'analytics' && (
+           <Analytics
+             trades={activeTrades}
+             onFilterTrades={handleFilterTrades}
+             onNavigateToDay={(date) => { setJournalDate(date); setView('daily_journal'); }}
+             rules={rules}
+             ruleChecks={ruleChecks}
+             ruleSettings={ruleSettings}
+             onAddRule={handleAddRule}
+             onUpdateRule={handleUpdateRule}
+             onDeleteRule={handleDeleteRule}
+             onToggleCheck={handleToggleCheck}
+             onUpdateSettings={handleUpdateSettings}
+             onResetProgress={handleResetProgress}
+             aiRecaps={aiRecaps}
+             onGenerateRecap={handleGenerateRecap}
+             onDeleteRecap={handleDeleteRecap}
+             deepAnalyses={deepAnalyses}
+             onGenerateDeepAnalysis={handleGenerateDeepAnalysis}
+             onDeleteDeepAnalysis={handleDeleteDeepAnalysis}
+             psychProfiles={psychProfiles}
+             onGeneratePsychProfile={handleGeneratePsychProfile}
+             onDeletePsychProfile={handleDeletePsychProfile}
+           />
+         )}
          
          {view === 'daily_journal' && (
            <DailyJournal 
@@ -628,7 +757,7 @@ const App: React.FC = () => {
             />
          )}
 
-         {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={() => {}} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={() => {}} />}
+         {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={handleSaveDailyReview} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={(id) => { setFocusedTradeId(id); setView('journal'); }} />}
          
          {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} />}
          
@@ -671,7 +800,7 @@ const App: React.FC = () => {
             />
           )}
          
-         {view === 'settings' && <Settings trades={activeTrades} playbooks={playbooks} onUpdatePlaybooks={handleUpdatePlaybooks} onImportTrades={handleImportTrades} initialSettings={userSettings} onUpdateSettings={setUserSettings} />}
+         {view === 'settings' && <Settings trades={activeTrades} playbooks={playbooks} onUpdatePlaybooks={handleUpdatePlaybooks} onImportTrades={handleImportTrades} onBatchImport={handleBatchImport} initialSettings={userSettings} onUpdateSettings={setUserSettings} />}
       </main>
     </div>
   );

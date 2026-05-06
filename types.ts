@@ -141,6 +141,34 @@ export interface AIRecap {
   net_pnl: number;
 }
 
+// ── DEEP ANALYSIS TYPES ─────────────────────────────────────────
+export type DeepAnalysisPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface DeepAnalysis {
+  id: string;               // e.g. "deep-weekly-2026-04-13"
+  period_type: DeepAnalysisPeriod;
+  period_start: string;     // YYYY-MM-DD
+  period_end: string;       // YYYY-MM-DD
+  content: string;          // Markdown from Gemma 4
+  generated_at: string;
+  trade_count: number;
+  net_pnl: number;
+}
+
+// ── PSYCH PROFILE TYPES ─────────────────────────────────────────
+export type PsychProfilePeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface PsychProfile {
+  id: string;               // e.g. "psych-daily-2026-04-17"
+  period_type: PsychProfilePeriod;
+  period_start: string;     // YYYY-MM-DD
+  period_end: string;       // YYYY-MM-DD
+  content: string;          // Markdown from Gemma 4
+  generated_at: string;
+  trade_count: number;
+  net_pnl: number;
+}
+
 export interface CheckInSettings {
   requirePreTrade: boolean;
   checkInAfterLoss: boolean;

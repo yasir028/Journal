@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "port": 5173
+    },
+    {
+      "name": "yasircoaching",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "start-coaching.cmd"],
+      "port": 3002,
+      "autoPort": false
     }
   ]
 }
