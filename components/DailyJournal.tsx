@@ -20,7 +20,9 @@ interface DailyJournalProps {
 
 const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate, onNavigateToTrade }) => {
   // --- STATE ---
-  const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL'>('MONTH');
+  const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
+  const [tfCustomStart, setTfCustomStart] = useState('');
+  const [tfCustomEnd,   setTfCustomEnd]   = useState('');
   
   // Report modal state
   const [showReportModal, setShowReportModal] = useState(false);
@@ -47,16 +49,21 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
     const currentYear = now.getFullYear();
 
     return allDates.filter(dateStr => {
-      const entryDate = new Date(dateStr + 'T12:00:00'); // Prevent timezone shifts
+      const entryDate = new Date(dateStr + 'T12:00:00');
       if (timeframe === 'MONTH') {
         return entryDate.getMonth() === currentMonth && entryDate.getFullYear() === currentYear;
       }
       if (timeframe === 'YEAR') {
         return entryDate.getFullYear() === currentYear;
       }
+      if (timeframe === 'CUSTOM') {
+        if (tfCustomStart && dateStr < tfCustomStart) return false;
+        if (tfCustomEnd   && dateStr > tfCustomEnd)   return false;
+        return true;
+      }
       return true; // ALL
     });
-  }, [allDates, timeframe]);
+  }, [allDates, timeframe, tfCustomStart, tfCustomEnd]);
 
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || filteredDates[0] || new Date().toISOString().split('T')[0]);
   const [showPreMarket, setShowPreMarket] = useState(true);
@@ -197,7 +204,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
           
           {/* Timeframe Selector UI */}
           <div className="flex bg-surfaceHighlight p-1 rounded-lg border border-surfaceHighlight/50">
-            {(['MONTH', 'YEAR', 'ALL'] as const).map((tf) => (
+            {(['MONTH', 'YEAR', 'ALL', 'CUSTOM'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
@@ -205,10 +212,28 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
                   timeframe === tf ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'
                 }`}
               >
-                {tf}
+                {tf === 'CUSTOM' ? 'DATE' : tf}
               </button>
             ))}
           </div>
+          {timeframe === 'CUSTOM' && (
+            <div className="flex flex-col gap-1">
+              <input
+                type="date"
+                value={tfCustomStart}
+                onChange={e => setTfCustomStart(e.target.value)}
+                className="w-full bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+                placeholder="Start"
+              />
+              <input
+                type="date"
+                value={tfCustomEnd}
+                onChange={e => setTfCustomEnd(e.target.value)}
+                className="w-full bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+                placeholder="End"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">

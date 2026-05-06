@@ -38,7 +38,9 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     return new Date();
   });
 
-  const [timeframe, setTimeframe] = useState<'month' | 'year' | 'all'>('month');
+  const [timeframe, setTimeframe] = useState<'month' | 'year' | 'all' | 'custom'>('month');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const [recentTab, setRecentTab] = useState<'recent' | 'open'>('recent');
   const monthPickerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,14 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     if (timeframe === 'all') {
       return trades.filter(t => t.status === TradeStatus.CLOSED);
     }
+    if (timeframe === 'custom') {
+      return trades.filter(t => {
+        if (t.status !== TradeStatus.CLOSED) return false;
+        if (customStart && t.date < customStart) return false;
+        if (customEnd && t.date > customEnd) return false;
+        return true;
+      });
+    }
     const targetYear = viewDate.getFullYear();
     const targetMonth = viewDate.getMonth();
     return trades.filter(t => {
@@ -68,7 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
       if (timeframe === 'year') return tYear === targetYear;
       return tYear === targetYear && tMonth === targetMonth;
     });
-  }, [trades, viewDate, timeframe]);
+  }, [trades, viewDate, timeframe, customStart, customEnd]);
 
   // --- STATS ---
   const stats = useMemo(() => {
@@ -191,8 +201,21 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     } else {
       if (filteredTrades.length === 0) return [];
       const sorted = [...filteredTrades].sort((a, b) => a.date.localeCompare(b.date));
-      const start = new Date(sorted[0].date);
-      const end = new Date(sorted[sorted.length - 1].date);
+      const start = new Date(sorted[0].date + 'T12:00:00');
+      const end = new Date(sorted[sorted.length - 1].date + 'T12:00:00');
+      const daysDiff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      if (timeframe === 'custom' && daysDiff <= 62) {
+        const data: Array<{ name: string; pnl: number; count: number; fullDate: string }> = [];
+        const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        while (cur <= endDay) {
+          const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+          const dayTrades = filteredTrades.filter(t => t.date === dateStr);
+          data.push({ name: String(cur.getDate()), pnl: dayTrades.reduce((a, t) => a + (t.pnl || 0), 0), count: dayTrades.length, fullDate: dateStr });
+          cur.setDate(cur.getDate() + 1);
+        }
+        return data;
+      }
       const data = [];
       const current = new Date(start.getFullYear(), start.getMonth(), 1);
       const endDate = new Date(end.getFullYear(), end.getMonth(), 1);
@@ -355,7 +378,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
   const handleMonthSelect = (newMonthIndex: number) => { setViewDate(new Date(year, newMonthIndex, 1)); setIsMonthPickerOpen(false); };
   const handleNav = (inc: number) => {
     if (timeframe === 'month') setViewDate(new Date(year, month + inc, 1));
-    else setViewDate(new Date(year + inc, month, 1));
+    else if (timeframe === 'year') setViewDate(new Date(year + inc, month, 1));
   };
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -375,15 +398,25 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
       {/* ═══════════════ HEADER CONTROLS ═══════════════ */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-4 rounded-xl border border-surfaceHighlight">
         <div className="flex items-center gap-2 bg-surfaceHighlight p-1 rounded-lg">
-          {(['month', 'year', 'all'] as const).map(tf => (
+          {(['month', 'year', 'all', 'custom'] as const).map(tf => (
             <button key={tf} onClick={() => setTimeframe(tf)}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${timeframe === tf ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'}`}>
-              {tf === 'month' ? 'Monthly' : tf === 'year' ? 'Yearly' : 'All Time'}
+              {tf === 'month' ? 'Monthly' : tf === 'year' ? 'Yearly' : tf === 'all' ? 'All Time' : 'Custom'}
             </button>
           ))}
         </div>
 
-        {timeframe !== 'all' && (
+        {timeframe === 'custom' && (
+          <div className="flex items-center gap-2">
+            <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+              className="text-xs bg-surfaceHighlight border border-surfaceHighlight text-text rounded px-2 py-1.5 focus:outline-none focus:border-primary" />
+            <span className="text-textMuted text-xs">to</span>
+            <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+              className="text-xs bg-surfaceHighlight border border-surfaceHighlight text-text rounded px-2 py-1.5 focus:outline-none focus:border-primary" />
+          </div>
+        )}
+
+        {(timeframe === 'month' || timeframe === 'year') && (
           <div className="flex items-center gap-4 relative">
             <button onClick={() => setViewDate(new Date())} className="text-xs font-medium px-3 py-1 rounded bg-surfaceHighlight hover:bg-surface border border-transparent hover:border-surfaceHighlight text-textMuted transition-colors uppercase tracking-wider">
               Current
@@ -415,8 +448,10 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
             </div>
           </div>
         )}
-        {timeframe === 'all' && (
-          <div className="text-textMuted text-sm font-medium px-4">Showing metrics since inception</div>
+        {(timeframe === 'all' || timeframe === 'custom') && (
+          <div className="text-textMuted text-sm font-medium px-4">
+            {timeframe === 'all' ? 'Showing metrics since inception' : 'Custom date range'}
+          </div>
         )}
       </div>
 
@@ -740,7 +775,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
       </div>
 
       {/* ═══════════════ BOTTOM ROW: Calendar + Drawdown ═══════════════ */}
-      {timeframe !== 'all' && (
+      {(timeframe === 'month' || timeframe === 'year') && (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
           {/* P&L Calendar */}

@@ -1,21 +1,23 @@
 
-import React, { useState, useEffect } from 'react';
-import { CheckInSettings, Trade, TradeType, TradeStatus, Emotion, Playbook } from '../types';
-import { Save, Download, Upload, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { CheckInSettings, Trade, TradeType, TradeStatus, Emotion, Playbook, Instrument, FUTURES_CONTRACTS } from '../types';
+import { Save, Download, Upload, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X, FileUp, Eye, ArrowRight, RefreshCw } from 'lucide-react';
 
 interface SettingsProps {
   trades?: Trade[];
   playbooks?: Playbook[];
   onImportTrades?: (trades: Trade[]) => void;
+  onBatchImport?: (trades: Trade[]) => Promise<{ imported: number; skipped: number }>;
   onUpdatePlaybooks?: (playbooks: Playbook[]) => void;
   onUpdateSettings?: (settings: CheckInSettings) => void;
   initialSettings?: CheckInSettings;
 }
 
-const Settings: React.FC<SettingsProps> = ({ 
-  trades = [], 
-  playbooks = [], 
-  onImportTrades, 
+const Settings: React.FC<SettingsProps> = ({
+  trades = [],
+  playbooks = [],
+  onImportTrades,
+  onBatchImport,
   onUpdatePlaybooks,
   onUpdateSettings,
   initialSettings
@@ -49,6 +51,200 @@ const Settings: React.FC<SettingsProps> = ({
   // Playbook UI State
   const [newPlaybookName, setNewPlaybookName] = useState('');
   const [newPlaybookDesc, setNewPlaybookDesc] = useState('');
+
+  // ── Tradovate Import State ─────────────────────────────────────
+  const [tvParsedTrades, setTvParsedTrades] = useState<Trade[]>([]);
+  const [tvSelected, setTvSelected] = useState<Set<string>>(new Set());
+  const [tvImporting, setTvImporting] = useState(false);
+  const [tvResult, setTvResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [tvError, setTvError] = useState('');
+  const [tvDragOver, setTvDragOver] = useState(false);
+  const tvFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Tradovate CSV Parser ───────────────────────────────────────
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuote && line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuote = !inQuote; }
+      } else if (char === ',' && !inQuote) {
+        result.push(current); current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
+  };
+
+  const parsePnl = (s: string): number => {
+    if (!s) return 0;
+    const neg = s.includes('(');
+    const clean = s.replace(/[$(),\s]/g, '');
+    return neg ? -parseFloat(clean) : parseFloat(clean);
+  };
+
+  const parseTimestamp = (ts: string): { date: string; time: string } => {
+    const [datePart = '', timePart = ''] = ts.trim().split(' ');
+    const [mm = '01', dd = '01', yyyy = '2000'] = datePart.split('/');
+    return {
+      date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`,
+      time: timePart,
+    };
+  };
+
+  const generateTradovateId = (date: string, symbol: string, entryTime: string, entryPrice: number, exitPrice: number): string => {
+    const raw = `${date}|${symbol}|${entryTime}|${entryPrice}|${exitPrice}`;
+    // Simple hash
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const chr = raw.charCodeAt(i);
+      hash = ((hash << 5) - hash) + chr;
+      hash |= 0;
+    }
+    return `tv-${Math.abs(hash).toString(36)}`;
+  };
+
+  const handleTradovateFile = useCallback((file: File) => {
+    setTvError('');
+    setTvResult(null);
+    setTvParsedTrades([]);
+
+    if (!file.name.endsWith('.csv')) {
+      setTvError('Please upload a .csv file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) throw new Error('File is empty or invalid');
+
+        const headers = parseLine(lines[0]).map(h => h.trim().toLowerCase());
+        const isPlatform = headers.includes('boughttimestamp') || headers.includes('buyprice');
+
+        if (!isPlatform) {
+          setTvError('This does not appear to be a Tradovate CSV export. Please export from Tradovate Performance tab.');
+          return;
+        }
+
+        const parsed: Trade[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const row = parseLine(lines[i]);
+          const getVal = (keys: string[]) => {
+            const idx = headers.findIndex(h => keys.includes(h));
+            return idx !== -1 ? row[idx]?.trim() : undefined;
+          };
+
+          const symbol = getVal(['symbol']);
+          if (!symbol) continue;
+
+          const boughtTs = getVal(['boughttimestamp']) || '';
+          const soldTs   = getVal(['soldtimestamp'])   || '';
+          const bought   = parseTimestamp(boughtTs);
+          const sold     = parseTimestamp(soldTs);
+
+          const boughtMs = new Date(`${bought.date}T${bought.time}`).getTime();
+          const soldMs   = new Date(`${sold.date}T${sold.time}`).getTime();
+          const isLong   = boughtMs <= soldMs;
+
+          const buyPrice  = parseFloat(getVal(['buyprice'])  || '0');
+          const sellPrice = parseFloat(getVal(['sellprice']) || '0');
+          const entryPrice = isLong ? buyPrice  : sellPrice;
+          const exitPrice  = isLong ? sellPrice : buyPrice;
+          const entryTime  = isLong ? bought.time : sold.time;
+          const exitTime   = isLong ? sold.time   : bought.time;
+          const date       = isLong ? bought.date  : sold.date;
+          const pnl        = parsePnl(getVal(['pnl']) || '');
+          const qty        = parseFloat(getVal(['qty', 'quantity']) || '0');
+          const fees       = parsePnl(getVal(['fees', 'commission', 'commissions']) || '');
+
+          // Clean symbol — strip contract month/year (e.g. "MESM5" → "MES")
+          const cleanSymbol = symbol.replace(/[A-Z]\d+$/i, '').toUpperCase();
+          const futureContract = FUTURES_CONTRACTS.find(f => f.symbol === cleanSymbol);
+
+          const tradeId = generateTradovateId(date, cleanSymbol, entryTime, entryPrice, exitPrice);
+
+          parsed.push({
+            id: tradeId,
+            date,
+            symbol: cleanSymbol,
+            instrument: Instrument.FUTURE,
+            type: isLong ? TradeType.LONG : TradeType.SHORT,
+            status: TradeStatus.CLOSED,
+            entryPrice,
+            exitPrice,
+            quantity: qty,
+            pnl: futureContract ? undefined : pnl, // recalculate if we know multiplier
+            fees: Math.abs(fees),
+            entryTime,
+            exitTime,
+            emotionPre: Emotion.NEUTRAL,
+            notes: '',
+            setup: '',
+            tags: ['tradovate'],
+          });
+
+          // Recalculate PnL using futures multiplier if available
+          const lastTrade = parsed[parsed.length - 1];
+          if (futureContract && lastTrade.exitPrice !== undefined) {
+            const diff = lastTrade.type === TradeType.LONG
+              ? (lastTrade.exitPrice - lastTrade.entryPrice)
+              : (lastTrade.entryPrice - lastTrade.exitPrice);
+            lastTrade.pnl = parseFloat((diff * futureContract.multiplier * lastTrade.quantity).toFixed(2));
+          } else {
+            lastTrade.pnl = pnl;
+          }
+        }
+
+        if (parsed.length === 0) {
+          setTvError('No trades found in the CSV file.');
+          return;
+        }
+
+        setTvParsedTrades(parsed);
+        setTvSelected(new Set(parsed.map(t => t.id)));
+      } catch (err) {
+        setTvError('Failed to parse CSV file. Make sure it\'s exported from Tradovate Performance tab.');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const handleTvDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setTvDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleTradovateFile(file);
+  }, [handleTradovateFile]);
+
+  const handleTvImport = async () => {
+    const selectedTrades = tvParsedTrades.filter(t => tvSelected.has(t.id));
+    if (selectedTrades.length === 0) return;
+
+    setTvImporting(true);
+    setTvError('');
+
+    try {
+      if (onBatchImport) {
+        const result = await onBatchImport(selectedTrades);
+        setTvResult(result);
+        setTvParsedTrades([]);
+      }
+    } catch (err) {
+      setTvError('Import failed. Please try again.');
+      console.error(err);
+    } finally {
+      setTvImporting(false);
+    }
+  };
 
   const handleToggle = (key: keyof CheckInSettings) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -373,6 +569,211 @@ const Settings: React.FC<SettingsProps> = ({
                 <Plus size={14}/> Add Playbook
               </button>
             </form>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION: BROKER IMPORT */}
+      <div>
+        <h2 className="text-2xl font-bold text-text mb-6">Broker Import</h2>
+        <div className="bg-surface rounded-xl border border-surfaceHighlight overflow-hidden">
+          <div className="p-6 border-b border-surfaceHighlight">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                <span className="text-lg font-bold text-orange-400">T</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-text">Import from Tradovate</h3>
+                <p className="text-sm text-textMuted">Import completed trades from your Tradovate account</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Instructions */}
+            <div className="bg-background/60 rounded-lg p-4 border border-surfaceHighlight">
+              <p className="text-xs font-semibold text-textMuted uppercase mb-3">How to export from Tradovate</p>
+              <ol className="space-y-2 text-sm text-textMuted">
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">1</span>
+                  <span>Log into <strong className="text-text">Tradovate</strong> and go to the <strong className="text-text">Performance</strong> tab</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">2</span>
+                  <span>Set the <strong className="text-text">date range</strong> for trades you want to import</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">3</span>
+                  <span>Click the <strong className="text-text">Export</strong> button to download the CSV</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">4</span>
+                  <span>Drag the file below or click to browse</span>
+                </li>
+              </ol>
+            </div>
+
+            {/* Drop Zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setTvDragOver(true); }}
+              onDragLeave={() => setTvDragOver(false)}
+              onDrop={handleTvDrop}
+              onClick={() => tvFileRef.current?.click()}
+              className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                tvDragOver
+                  ? 'border-primary bg-primary/5 scale-[1.01]'
+                  : 'border-surfaceHighlight hover:border-gray-500 hover:bg-background/50'
+              }`}
+            >
+              <input
+                ref={tvFileRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleTradovateFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <FileUp size={32} className={`mx-auto mb-3 ${tvDragOver ? 'text-primary' : 'text-textMuted'}`} />
+              <p className="text-text font-medium">Drop Tradovate CSV here</p>
+              <p className="text-xs text-textMuted mt-1">or click to browse files</p>
+            </div>
+
+            {/* Error */}
+            {tvError && (
+              <div className="flex items-center gap-2 p-3 bg-danger/10 border border-danger/30 rounded-lg">
+                <AlertCircle size={16} className="text-danger flex-shrink-0" />
+                <p className="text-sm text-danger">{tvError}</p>
+              </div>
+            )}
+
+            {/* Success Result */}
+            {tvResult && (
+              <div className="flex items-center gap-3 p-4 bg-success/10 border border-success/30 rounded-lg">
+                <CheckCircle size={20} className="text-success flex-shrink-0" />
+                <div>
+                  <p className="text-success font-semibold">Import Complete</p>
+                  <p className="text-sm text-textMuted">
+                    {tvResult.imported} trade{tvResult.imported !== 1 ? 's' : ''} imported
+                    {tvResult.skipped > 0 && `, ${tvResult.skipped} duplicate${tvResult.skipped !== 1 ? 's' : ''} skipped`}
+                  </p>
+                </div>
+                <button onClick={() => setTvResult(null)} className="ml-auto text-textMuted hover:text-text"><X size={16} /></button>
+              </div>
+            )}
+
+            {/* Preview Table */}
+            {tvParsedTrades.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Eye size={16} className="text-primary" />
+                    <h4 className="text-text font-semibold text-sm">Preview ({tvParsedTrades.length} trades found)</h4>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs text-textMuted cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tvSelected.size === tvParsedTrades.length}
+                        onChange={(e) => {
+                          setTvSelected(e.target.checked ? new Set(tvParsedTrades.map(t => t.id)) : new Set());
+                        }}
+                        className="rounded"
+                      />
+                      Select All
+                    </label>
+                  </div>
+                </div>
+
+                <div className="max-h-72 overflow-auto border border-surfaceHighlight rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-surfaceHighlight/50 sticky top-0">
+                      <tr>
+                        <th className="w-8 p-2"></th>
+                        <th className="text-left p-2 text-textMuted font-medium">Date</th>
+                        <th className="text-left p-2 text-textMuted font-medium">Symbol</th>
+                        <th className="text-left p-2 text-textMuted font-medium">Side</th>
+                        <th className="text-right p-2 text-textMuted font-medium">Entry</th>
+                        <th className="text-right p-2 text-textMuted font-medium">Exit</th>
+                        <th className="text-right p-2 text-textMuted font-medium">Qty</th>
+                        <th className="text-right p-2 text-textMuted font-medium">P&L</th>
+                        <th className="text-right p-2 text-textMuted font-medium">Fees</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surfaceHighlight">
+                      {tvParsedTrades.map(trade => (
+                        <tr key={trade.id} className={`hover:bg-surfaceHighlight/30 ${!tvSelected.has(trade.id) ? 'opacity-40' : ''}`}>
+                          <td className="p-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={tvSelected.has(trade.id)}
+                              onChange={() => {
+                                setTvSelected(prev => {
+                                  const next = new Set(prev);
+                                  next.has(trade.id) ? next.delete(trade.id) : next.add(trade.id);
+                                  return next;
+                                });
+                              }}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="p-2 text-text">{trade.date}</td>
+                          <td className="p-2 text-text font-medium">{trade.symbol}</td>
+                          <td className="p-2">
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${trade.type === TradeType.LONG ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
+                              {trade.type}
+                            </span>
+                          </td>
+                          <td className="p-2 text-right text-text">{trade.entryPrice.toFixed(2)}</td>
+                          <td className="p-2 text-right text-text">{trade.exitPrice?.toFixed(2)}</td>
+                          <td className="p-2 text-right text-text">{trade.quantity}</td>
+                          <td className={`p-2 text-right font-semibold ${(trade.pnl ?? 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                            ${(trade.pnl ?? 0).toFixed(2)}
+                          </td>
+                          <td className="p-2 text-right text-textMuted">${(trade.fees ?? 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-surfaceHighlight/30 border-t border-surfaceHighlight">
+                      <tr>
+                        <td colSpan={7} className="p-2 text-right text-textMuted font-medium">Total P&L:</td>
+                        <td className={`p-2 text-right font-bold ${
+                          tvParsedTrades.filter(t => tvSelected.has(t.id)).reduce((s, t) => s + (t.pnl ?? 0), 0) >= 0 ? 'text-success' : 'text-danger'
+                        }`}>
+                          ${tvParsedTrades.filter(t => tvSelected.has(t.id)).reduce((s, t) => s + (t.pnl ?? 0), 0).toFixed(2)}
+                        </td>
+                        <td className="p-2 text-right text-textMuted">
+                          ${tvParsedTrades.filter(t => tvSelected.has(t.id)).reduce((s, t) => s + (t.fees ?? 0), 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Import Button */}
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    onClick={() => { setTvParsedTrades([]); setTvSelected(new Set()); }}
+                    className="text-sm text-textMuted hover:text-text"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleTvImport}
+                    disabled={tvSelected.size === 0 || tvImporting}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white font-semibold rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                  >
+                    {tvImporting ? (
+                      <><RefreshCw size={16} className="animate-spin" /> Importing...</>
+                    ) : (
+                      <><ArrowRight size={16} /> Import {tvSelected.size} Trade{tvSelected.size !== 1 ? 's' : ''}</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

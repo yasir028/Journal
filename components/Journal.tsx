@@ -25,7 +25,9 @@ interface JournalProps {
 }
 
 const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened }) => {
-  const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL'>('MONTH');
+  const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd]   = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
@@ -263,13 +265,17 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const currentYear = now.getFullYear();
 
   return trades.filter(trade => {
-    const tradeDate = new Date(trade.date);
+    // T12:00:00 prevents midnight-UTC dates from shifting to prior day in local timezones
+    const tradeDate = new Date(trade.date + 'T12:00:00');
 
     // Timeframe Filter
     if (timeframe === 'MONTH') {
       if (tradeDate.getMonth() !== currentMonth || tradeDate.getFullYear() !== currentYear) return false;
     } else if (timeframe === 'YEAR') {
       if (tradeDate.getFullYear() !== currentYear) return false;
+    } else if (timeframe === 'CUSTOM') {
+      if (customStart && trade.date < customStart) return false;
+      if (customEnd   && trade.date > customEnd)   return false;
     }
 
     // Existing Filters
@@ -300,8 +306,8 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     }
     
     return true;
-  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}, [trades, timeframe, filterSymbol, filterType, filterStatus, searchQuery, filterSetup, filterPlaybook, filterEmotion, filterTags, filterMistake]);
+  }).sort((a, b) => b.date.localeCompare(a.date));
+}, [trades, timeframe, customStart, customEnd, filterSymbol, filterType, filterStatus, searchQuery, filterSetup, filterPlaybook, filterEmotion, filterTags, filterMistake]);
 
   // NEW: Stats for filtered results
   const filteredStats = useMemo(() => {
@@ -794,19 +800,38 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
         </div>
         
         <div className="flex gap-3">
-        <div className="flex bg-surfaceHighlight rounded-lg p-1 border border-surfaceHighlight">
-  {(['MONTH', 'YEAR', 'ALL'] as const).map((tf) => (
-    <button
-      key={tf}
-      onClick={() => setTimeframe(tf)}
-      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
-        timeframe === tf ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'
-      }`}
-    >
-      {tf}
-    </button>
-  ))}
-</div>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-surfaceHighlight rounded-lg p-1 border border-surfaceHighlight">
+            {(['MONTH', 'YEAR', 'ALL', 'CUSTOM'] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                  timeframe === tf ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+          {timeframe === 'CUSTOM' && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customStart}
+                onChange={e => setCustomStart(e.target.value)}
+                className="bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+              />
+              <span className="text-textMuted text-xs">–</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={e => setCustomEnd(e.target.value)}
+                className="bg-background border border-surfaceHighlight rounded-md px-2 py-1 text-xs text-text outline-none focus:border-primary"
+              />
+            </div>
+          )}
+        </div>
           <button onClick={() => setIsCompact(!isCompact)} className={`p-2 rounded-lg border transition-colors ${isCompact ? 'bg-primary text-white border-primary' : 'bg-surfaceHighlight text-textMuted border-gray-700'}`}>
             <LayoutList size={20} />
           </button>
