@@ -16,7 +16,10 @@
       "Bash(taskkill /PID 16836 /F)",
       "Bash(cmd //c \"taskkill /PID 16836 /F\")",
       "mcp__Claude_in_Chrome__browser_batch",
-      "mcp__Claude_in_Chrome__computer"
+      "mcp__Claude_in_Chrome__computer",
+      "Bash(Get-ChildItem -Recurse -Include \"*.db\" -Exclude \"node_modules\")",
+      "Bash(node -e ' *)",
+      "Bash(curl -s http://localhost:3001/trades)"
     ]
   }
 }
