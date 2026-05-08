@@ -662,8 +662,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9 }} tickMargin={8} minTickGap={40} />
-                <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
+                <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Cumulative P&L']} />
                 <Area type="monotone" dataKey="pnl" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorCumPnl)" />
               </AreaChart>
@@ -763,8 +763,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9 }} tickMargin={8} minTickGap={40} />
-                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
+                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                   <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Balance']} />
                   <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorBalance)" />
                 </AreaChart>
@@ -892,8 +892,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9 }} tickMargin={8} minTickGap={40} />
-                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
+                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
+                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${v}`} />
                   <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Drawdown']} />
                   <ReferenceLine y={0} stroke="var(--text-muted)" strokeOpacity={0.3} />
                   <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1.5} fillOpacity={1} fill="url(#colorDrawdown)" />

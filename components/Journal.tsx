@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Trade, TradeType, TradeStatus, Emotion, DailyAnalysis, TradeHistoryItem, Playbook, DEFAULT_MISTAKES, Instrument, FUTURES_CONTRACTS, TradeExit } from '../types';
-import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download } from 'lucide-react';
+import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download, Star, Calendar as CalendarIcon } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
+import TradeDetail from './TradeDetail';
 
 interface JournalProps {
   trades: Trade[];
@@ -35,6 +36,13 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   
   // Expanded Row State
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Trade Detail Modal (Feature 9)
+  const [detailTradeId, setDetailTradeId] = useState<string | null>(null);
+
+  // Day View (Feature 12)
+  const [viewMode, setViewMode] = useState<'trade' | 'day'>('trade');
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
 
   // Floating Window State
   const [floatingView, setFloatingView] = useState<{
@@ -96,6 +104,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const [customEmotion, setCustomEmotion] = useState('');
 
   const [imageUrl, setImageUrl] = useState('');
+  const [rating, setRating] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   
   // Multi-Exit State
@@ -573,6 +582,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     setPlaybookId(''); setIsAddingPlaybook(false); setNewPlaybookName('');
     setSelectedMistakes([]); setCustomMistake('');
     setExits([]);
+    setRating(0); // Rating
     setTradeTags([]); // NEW
     setTagInput(''); // NEW
     setImageUrls([]); // NEW
@@ -650,6 +660,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
     setMultiplier(mult.toString());
     
     // NEW: Load enhanced fields
+    setRating((trade as any).rating || 0);
     setTradeTags((trade as any).tags || []);
     setImageUrls((trade as any).imageUrls || []);
     setAudioUrl((trade as any).audioUrl || '');
@@ -741,6 +752,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       imageUrl: imageUrl || undefined,
       history: currentTradeHistory,
       exits: exits.length > 0 ? exits.map((e, idx) => ({ id: idx.toString(), price: parseFloat(e.price), quantity: parseFloat(e.quantity) })) : undefined,
+      rating: rating > 0 ? rating : undefined,
       // NEW: Enhanced fields (cast to any to bypass type checking)
       ...((tradeTags.length > 0 || imageUrls.length > 0 || audioUrl) && {
         tags: tradeTags.length > 0 ? tradeTags : undefined,
@@ -832,6 +844,15 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
             </div>
           )}
         </div>
+          {/* View Mode Toggle: Trade vs Day */}
+          <div className="flex bg-surfaceHighlight rounded-lg p-1 border border-surfaceHighlight">
+            <button onClick={() => setViewMode('trade')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode === 'trade' ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'}`}>
+              Trade View
+            </button>
+            <button onClick={() => setViewMode('day')} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${viewMode === 'day' ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:text-text'}`}>
+              Day View
+            </button>
+          </div>
           <button onClick={() => setIsCompact(!isCompact)} className={`p-2 rounded-lg border transition-colors ${isCompact ? 'bg-primary text-white border-primary' : 'bg-surfaceHighlight text-textMuted border-gray-700'}`}>
             <LayoutList size={20} />
           </button>
@@ -884,7 +905,109 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
         </div>
       )}
 
-      {/* Trades Table */}
+      {/* Day View (Feature 12) */}
+      {viewMode === 'day' && (() => {
+        // Group trades by date
+        const grouped: Record<string, Trade[]> = {};
+        filteredTrades.forEach(t => {
+          if (!grouped[t.date]) grouped[t.date] = [];
+          grouped[t.date].push(t);
+        });
+        const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+        const toggleDay = (d: string) => {
+          setExpandedDays(prev => {
+            const next = new Set(prev);
+            if (next.has(d)) next.delete(d); else next.add(d);
+            return next;
+          });
+        };
+        return (
+          <div className="flex-1 overflow-auto bg-surface rounded-xl border border-surfaceHighlight shadow-sm">
+            {sortedDates.length > 0 ? sortedDates.map(date => {
+              const dayTrades = grouped[date];
+              const closed = dayTrades.filter(t => t.status === TradeStatus.CLOSED);
+              const netPnl = closed.reduce((acc, t) => acc + (t.pnl || 0), 0);
+              const wins = closed.filter(t => (t.pnl || 0) > 0).length;
+              const winRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
+              const isExpanded = expandedDays.has(date);
+              return (
+                <div key={date} className="border-b border-surfaceHighlight/50 last:border-b-0">
+                  <button
+                    onClick={() => toggleDay(date)}
+                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-surfaceHighlight/20 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      {isExpanded ? <ChevronDown size={16} className="text-textMuted" /> : <ChevronRight size={16} className="text-textMuted" />}
+                      <CalendarIcon size={16} className="text-primary" />
+                      <span className="font-bold text-text">{date}</span>
+                      <span className="text-xs text-textMuted bg-surfaceHighlight px-2 py-0.5 rounded">{dayTrades.length} trade{dayTrades.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <span className={`font-mono font-bold ${netPnl > 0 ? 'text-success' : netPnl < 0 ? 'text-danger' : 'text-textMuted'}`}>
+                        {netPnl > 0 ? '+' : ''}{netPnl.toFixed(2)}
+                      </span>
+                      {closed.length > 0 && (
+                        <span className="text-xs text-textMuted">WR: <span className={`font-bold ${winRate >= 50 ? 'text-success' : 'text-danger'}`}>{winRate}%</span></span>
+                      )}
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-6 pb-4 animate-in slide-in-from-top-2 duration-200">
+                      <table className="w-full text-left text-sm">
+                        <thead className="text-textMuted text-xs uppercase bg-surfaceHighlight/30">
+                          <tr>
+                            <th className="px-3 py-2">Symbol</th>
+                            <th className="px-3 py-2">Side</th>
+                            <th className="px-3 py-2 text-right">Entry</th>
+                            <th className="px-3 py-2 text-right">Exit</th>
+                            <th className="px-3 py-2 text-right">P&L</th>
+                            <th className="px-3 py-2 text-center">Status</th>
+                            <th className="px-3 py-2 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-surfaceHighlight/30">
+                          {dayTrades.map(t => {
+                            const w = (t.pnl || 0) > 0;
+                            const l = (t.pnl || 0) < 0;
+                            return (
+                              <tr key={t.id} className="hover:bg-surfaceHighlight/10">
+                                <td className="px-3 py-2 font-bold text-text">{t.symbol}</td>
+                                <td className="px-3 py-2"><span className={`inline-flex items-center gap-1 font-medium ${t.type === TradeType.LONG ? 'text-success' : 'text-danger'}`}>{t.type === TradeType.LONG ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>} {t.type}</span></td>
+                                <td className="px-3 py-2 text-right text-textMuted font-mono">{t.entryPrice}</td>
+                                <td className="px-3 py-2 text-right text-textMuted font-mono">{t.exitPrice || '-'}</td>
+                                <td className={`px-3 py-2 text-right font-mono font-medium ${w ? 'text-success' : l ? 'text-danger' : 'text-textMuted'}`}>{t.pnl ? `${w ? '+' : ''}${t.pnl.toFixed(2)}` : '-'}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                                    t.status === TradeStatus.OPEN ? 'bg-blue-500/10 text-blue-400' :
+                                    w ? 'bg-emerald-500 text-white' :
+                                    l ? 'bg-red-500 text-white' :
+                                    'bg-gray-500 text-white'
+                                  }`}>{t.status === TradeStatus.CLOSED ? (w ? 'WIN' : l ? 'LOSS' : 'BE') : 'OPEN'}</span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button onClick={() => setDetailTradeId(t.id)} className="p-1 hover:bg-surfaceHighlight rounded text-textMuted hover:text-primary transition-colors" title="View"><Eye size={14}/></button>
+                                    <button onClick={() => openEditModal(t)} className="p-1 hover:bg-surfaceHighlight rounded text-textMuted hover:text-accent transition-colors" title="Edit"><Pencil size={14}/></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            }) : (
+              <div className="px-6 py-12 text-center text-textMuted">No trades match your filters.</div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Trades Table (Trade View) */}
+      {viewMode === 'trade' && (
       <div className="flex-1 overflow-hidden bg-surface rounded-xl border border-surfaceHighlight flex flex-col shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -947,11 +1070,11 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                     </td>
                     
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-center`}>
-                      <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase ${
                         trade.status === TradeStatus.OPEN ? 'bg-blue-500/10 text-blue-400' :
-                        isWin ? 'bg-green-500/10 text-green-500' :
-                        isLoss ? 'bg-red-500/10 text-red-500' :
-                        'bg-gray-500/10 text-gray-400'
+                        isWin ? 'bg-emerald-500 text-white' :
+                        isLoss ? 'bg-red-500 text-white' :
+                        'bg-gray-500 text-white'
                       }`}>
                         {trade.status === TradeStatus.CLOSED ? (isWin ? 'WIN' : isLoss ? 'LOSS' : 'BE') : 'OPEN'}
                       </span>
@@ -959,6 +1082,9 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                     
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-center`}>
                       <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); setDetailTradeId(trade.id); }} className="p-1.5 hover:bg-surfaceHighlight rounded text-textMuted hover:text-primary transition-colors" title="View Details">
+                           <Eye size={16} />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); openEditModal(trade); }} className="p-1.5 hover:bg-surfaceHighlight rounded text-textMuted hover:text-accent transition-colors" title="Edit">
                            <Pencil size={16} />
                         </button>
@@ -1067,6 +1193,18 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                                       <span className="font-semibold text-accent">Strategy:</span> {playbooks.find(p => p.id === trade.playbookId)?.name}
                                     </div>
                                    )}
+
+                                   {/* Star Rating Display */}
+                                   {(trade as any).rating > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-surfaceHighlight flex items-center gap-2">
+                                      <span className="text-[10px] uppercase font-bold text-textMuted">Rating:</span>
+                                      <div className="flex gap-0.5">
+                                        {[1,2,3,4,5].map(i => (
+                                          <Star key={i} size={14} className={i <= (trade as any).rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                   )}
                                  </div>
                                </div>
 
@@ -1114,6 +1252,22 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
           </table>
         </div>
       </div>
+      )}
+
+      {/* Trade Detail Modal (Feature 9) */}
+      {detailTradeId && (() => {
+        const detailTrade = filteredTrades.find(t => t.id === detailTradeId);
+        if (!detailTrade) return null;
+        return (
+          <TradeDetail
+            trade={detailTrade}
+            trades={filteredTrades}
+            playbooks={playbooks}
+            onClose={() => setDetailTradeId(null)}
+            onNavigate={(id) => setDetailTradeId(id)}
+          />
+        );
+      })()}
 
       {/* Floating Window (Full Screen Modal) */}
       {floatingView && (
@@ -1517,9 +1671,9 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                            
                            {isCustomEmotion && (
                                <div className="animate-in slide-in-from-top-2 fade-in">
-                                   <input 
-                                     type="text" 
-                                     value={customEmotion} 
+                                   <input
+                                     type="text"
+                                     value={customEmotion}
                                      onChange={e => setCustomEmotion(e.target.value)}
                                      placeholder="Type emotion (e.g. Hesitant)"
                                      className="w-full bg-background border border-surfaceHighlight rounded-lg px-3 py-2 text-text outline-none focus:border-accent"
@@ -1527,6 +1681,25 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                                    />
                                </div>
                            )}
+                         </div>
+
+                         {/* Star Rating (Feature 10) */}
+                         <div>
+                           <label className="block text-xs text-textMuted mb-1">Trade Rating</label>
+                           <div className="flex gap-1">
+                             {[1, 2, 3, 4, 5].map(i => (
+                               <button
+                                 type="button"
+                                 key={i}
+                                 onClick={() => setRating(rating === i ? 0 : i)}
+                                 className="p-0.5 transition-transform hover:scale-110"
+                                 title={`${i} star${i > 1 ? 's' : ''}`}
+                               >
+                                 <Star size={24} className={i <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600 hover:text-gray-400'} />
+                               </button>
+                             ))}
+                             {rating > 0 && <span className="text-xs text-textMuted ml-2 self-center">{rating}/5</span>}
+                           </div>
                          </div>
                        </div>
                     </div>

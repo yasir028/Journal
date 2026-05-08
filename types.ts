@@ -78,12 +78,13 @@ export interface Trade {
   mistakes?: string[];
   imageUrl?: string;
   history?: TradeHistoryItem[];
+  rating?: number;
   exits?: TradeExit[];
 }
 
 export interface Trade {
   // ... existing fields ...
-  
+
   // NEW fields to add:
   tags?: string[];
   imageUrls?: string[];

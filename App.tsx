@@ -12,6 +12,7 @@ import AIRecaps from './components/AIRecaps';
 import PnLCalendar from './components/PnLCalendar';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import MindfulLogo from './components/MindfulLogo';
+import TradingIntelligence from './components/TradingIntelligence';
 import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile, PsychProfilePeriod, DeepAnalysis, DeepAnalysisPeriod } from './types';
 
 // ─── API CONFIGURATION ────────────────────────────────────────

@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ScatterChart, Scatter, ReferenceLine, Legend, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { Trade, TradeStatus, TradeType, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile as PsychProfileType, PsychProfilePeriod, DeepAnalysis as DeepAnalysisType, DeepAnalysisPeriod } from '../types';
-import { Calendar as CalendarIcon, Clock, BarChart2, TrendingUp, TrendingDown, Activity, AlertTriangle, Target, DollarSign, Filter, BrainCircuit, Zap, Timer, Award, TrendingDown as StreakDown, TrendingUp as StreakUp, Flame, ShieldCheck, Sparkles, Globe, GitCompare, Brain } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, BarChart2, TrendingUp, TrendingDown, Activity, AlertTriangle, Target, DollarSign, Filter, BrainCircuit, Zap, Timer, Award, TrendingDown as StreakDown, TrendingUp as StreakUp, Flame, ShieldCheck, Sparkles, Globe, GitCompare, Brain, Crosshair } from 'lucide-react';
 import PnLCalendar from './PnLCalendar';
 import RuleTracker from './RuleTracker';
 import AIRecaps from './AIRecaps';
 import DeepAnalysis from './DeepAnalysis';
 import PsychProfile from './PsychProfile';
+import TradingIntelligence from './TradingIntelligence';
 
-type AnalyticsTab = 'performance' | 'calendar' | 'progress' | 'recaps';
+type AnalyticsTab = 'performance' | 'calendar' | 'progress' | 'recaps' | 'intelligence';
 
 interface AnalyticsProps {
   trades: Trade[];
@@ -44,6 +45,7 @@ const TABS: { id: AnalyticsTab; label: string; icon: React.ElementType }[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { id: 'progress', label: 'Progress Tracker', icon: ShieldCheck },
   { id: 'recaps', label: 'Recaps & Insights', icon: Sparkles },
+  { id: 'intelligence', label: 'Intelligence', icon: Crosshair },
 ];
 
 const Analytics: React.FC<AnalyticsProps> = ({
@@ -358,6 +360,24 @@ const Analytics: React.FC<AnalyticsProps> = ({
       });
 
       return Object.entries(buckets).map(([name, pnl]) => ({ name, pnl }));
+  }, [filteredTrades]);
+
+  // --- P&L vs Entry Time Scatter Data (Feature 11) ---
+  const scatterTimeData = useMemo(() => {
+    const wins: Array<{time: number, pnl: number, symbol: string, timeLabel: string}> = [];
+    const losses: Array<{time: number, pnl: number, symbol: string, timeLabel: string}> = [];
+    filteredTrades.forEach(t => {
+      if (!t.entryTime) return;
+      const parts = t.entryTime.split(':');
+      const h = parseInt(parts[0]);
+      const m = parseInt(parts[1] || '0');
+      const decimalTime = h + (m / 60);
+      const timeLabel = t.entryTime;
+      const point = { time: parseFloat(decimalTime.toFixed(2)), pnl: t.pnl || 0, symbol: t.symbol, timeLabel };
+      if (point.pnl > 0) wins.push(point);
+      else losses.push(point);
+    });
+    return { wins, losses };
   }, [filteredTrades]);
 
   // --- NEW: MONTHLY PERFORMANCE REPORT DATA ---
@@ -1014,6 +1034,74 @@ const Analytics: React.FC<AnalyticsProps> = ({
          </div>
       </div>
 
+      {/* P&L vs Entry Time Scatter (Feature 11) */}
+      <div className="bg-surface p-6 rounded-xl border border-surfaceHighlight shadow-sm h-[400px]">
+        <h3 className="text-sm font-bold text-textMuted uppercase mb-4 flex items-center gap-2">
+          <Clock size={16}/> P&L vs Entry Time (Scatter)
+        </h3>
+        {scatterTimeData.wins.length + scatterTimeData.losses.length > 0 ? (
+          <ResponsiveContainer width="100%" height="88%">
+            <ScatterChart margin={{ top: 10, right: 30, bottom: 20, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" />
+              <XAxis
+                type="number"
+                dataKey="time"
+                name="Time"
+                domain={[6, 20]}
+                tickCount={15}
+                stroke="var(--text-muted)"
+                fontSize={10}
+                tickFormatter={(v: number) => {
+                  const h = Math.floor(v);
+                  const m = Math.round((v - h) * 60);
+                  return `${h}:${m.toString().padStart(2, '0')}`;
+                }}
+                label={{ value: 'Entry Time', position: 'insideBottom', offset: -10, style: { fill: 'var(--text-muted)', fontSize: 10 } }}
+              />
+              <YAxis
+                type="number"
+                dataKey="pnl"
+                name="P&L"
+                stroke="var(--text-muted)"
+                fontSize={10}
+                tickFormatter={(v: number) => `$${v}`}
+                label={{ value: 'P&L ($)', angle: -90, position: 'insideLeft', offset: 5, style: { fill: 'var(--text-muted)', fontSize: 10 } }}
+              />
+              <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="3 3" />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                formatter={(value: any, name: string) => {
+                  if (name === 'pnl') return [`$${Number(value).toFixed(2)}`, 'P&L'];
+                  return [value, name];
+                }}
+                labelFormatter={() => ''}
+                content={({ active, payload }: any) => {
+                  if (active && payload && payload.length > 0) {
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', padding: '8px 12px', borderRadius: '8px', fontSize: '12px' }}>
+                        <p style={{ fontWeight: 'bold', color: 'var(--text)' }}>{d.symbol}</p>
+                        <p style={{ color: 'var(--text-muted)' }}>Time: {d.timeLabel}</p>
+                        <p style={{ color: d.pnl > 0 ? '#22c55e' : '#ef4444', fontWeight: 'bold' }}>P&L: ${d.pnl.toFixed(2)}</p>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Legend wrapperStyle={{ color: 'var(--text-muted)' }} />
+              <Scatter name="Wins" data={scatterTimeData.wins} fill="#22c55e" />
+              <Scatter name="Losses" data={scatterTimeData.losses} fill="#ef4444" />
+            </ScatterChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-full flex items-center justify-center text-textMuted text-sm">
+            No trades with entry time data available
+          </div>
+        )}
+      </div>
+
       {/* NEW: MONTHLY PERFORMANCE REPORT */}
       <div className="bg-surface p-6 rounded-xl border border-surfaceHighlight shadow-sm">
         <h3 className="text-sm font-bold text-textMuted uppercase mb-4 flex items-center gap-2">
@@ -1053,6 +1141,11 @@ const Analytics: React.FC<AnalyticsProps> = ({
       </div>
 
       </div>
+      )}
+
+      {/* ═══════ INTELLIGENCE TAB ═══════ */}
+      {activeTab === 'intelligence' && (
+        <TradingIntelligence trades={trades} />
       )}
 
     </div>
