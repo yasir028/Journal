@@ -19,7 +19,12 @@
       "mcp__Claude_in_Chrome__computer",
       "Bash(Get-ChildItem -Recurse -Include \"*.db\" -Exclude \"node_modules\")",
       "Bash(node -e ' *)",
-      "Bash(curl -s http://localhost:3001/trades)"
+      "Bash(curl -s http://localhost:3001/trades)",
+      "PowerShell(Get-Process -Id 161400 | Select-Object Id, Name, Path, MainWindowTitle, StartTime; \\(Get-WmiObject Win32_Process -Filter \"ProcessId=161400\"\\).CommandLine)",
+      "Bash(wmic process *)",
+      "Bash(powershell -command \"\\(Get-WmiObject Win32_Process -Filter 'ProcessId=161400'\\).Path\")",
+      "PowerShell(\\(Get-WmiObject Win32_Process -Filter \"ProcessId=161400\"\\).WorkingDirectory)",
+      "Bash(tasklist /fi \"imagename eq node.exe\")"
     ]
   }
 }

@@ -44,6 +44,20 @@
         transition: background-color 0.3s, color 0.3s;
       }
 
+      /* Dark mode date input styling */
+      .dark input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(0.7) brightness(1.2);
+        cursor: pointer;
+      }
+      .dark input[type="date"] {
+        color-scheme: dark;
+      }
+
+      /* Dark mode select styling */
+      .dark select {
+        color-scheme: dark;
+      }
+
       /* Scrollbar Styling */
       ::-webkit-scrollbar {
         width: 8px;

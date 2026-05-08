@@ -5,7 +5,8 @@
       "name": "journal-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     },
     {
       "name": "yasircoaching",
