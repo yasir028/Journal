@@ -696,6 +696,223 @@ app.post('/ai/chat', async (req, res) => {
   }
 });
 
+// ── POST /ai/qa — Data-aware Q&A chat ──────────────────────────
+app.post('/ai/qa', async (req, res) => {
+  try {
+    const { message, history = [] } = req.body;
+    if (!message) return res.status(400).json({ error: 'message is required' });
+
+    // Fetch ALL trades for stats (from inception), 30 days for narrative context
+    const allData  = fetchFullContext(99999); // all data
+    const recent   = fetchFullContext(30);    // last 30 days for journal context
+    const context  = buildContextString({ trades: recent.trades, journal: recent.journal, notes: recent.notes }, 30);
+    const stats    = buildQAStatsString(allData.trades, allData.notes);
+
+    const systemPrompt = `You are a trading data assistant for a day trader. Answer questions using the statistics and journal data provided. Be precise with numbers — use the pre-computed stats when available. Format currency as $X.XX. If the data doesn't contain the answer, say so. Keep answers concise but complete. When the user asks about a specific month (e.g. "May"), use the monthly breakdown provided. When asked about a specific week or date range, use the daily trade history to compute the answer.`;
+
+    const userContent = [
+      stats ? `=== PRE-COMPUTED STATISTICS (ALL TIME) ===\n${stats}` : '',
+      context.trim() ? `\n=== JOURNAL CONTEXT (last 30 days) ===\n${context.substring(0, 6000)}` : '',
+      `\nQuestion: ${message}`,
+    ].filter(Boolean).join('\n');
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.slice(-8).map(h => ({
+        role:    h.role === 'ai' ? 'assistant' : 'user',
+        content: h.text,
+      })),
+      { role: 'user', content: userContent },
+    ];
+
+    const reply = await callOllama(messages, 800);
+    res.json({ reply });
+  } catch (err) {
+    console.error('[/ai/qa] error:', err.message);
+    res.status(500).json({
+      error: `AI unavailable: ${err.message}`,
+      hint: 'Make sure Ollama is running (ollama serve)',
+    });
+  }
+});
+
+function buildQAStatsString(trades, notes) {
+  if (!trades.length) return '';
+
+  const closed = trades.filter(t => t.pnl != null);
+  if (!closed.length) return 'No closed trades in the period.';
+
+  const winners  = closed.filter(t => t.pnl > 0);
+  const losers   = closed.filter(t => t.pnl < 0);
+  const netPnl   = closed.reduce((s, t) => s + t.pnl, 0);
+  const grossWin = winners.reduce((s, t) => s + t.pnl, 0);
+  const grossLoss = Math.abs(losers.reduce((s, t) => s + t.pnl, 0));
+  const avgWin   = winners.length ? grossWin / winners.length : 0;
+  const avgLoss  = losers.length  ? grossLoss / losers.length : 0;
+  const pf       = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : 'N/A';
+  const winRate  = ((winners.length / closed.length) * 100).toFixed(1);
+  const totalFees = closed.reduce((s, t) => s + (t.fees || 0), 0);
+
+  let s = '';
+  s += `Total closed trades: ${closed.length}\n`;
+  s += `Win rate: ${winRate}% (${winners.length}W / ${losers.length}L)\n`;
+  s += `Net P&L: $${netPnl.toFixed(2)}\n`;
+  s += `Gross win: $${grossWin.toFixed(2)} | Gross loss: $${grossLoss.toFixed(2)}\n`;
+  s += `Avg winner: $${avgWin.toFixed(2)} | Avg loser: $${avgLoss.toFixed(2)}\n`;
+  s += `Profit factor: ${pf}\n`;
+  s += `Total fees: $${totalFees.toFixed(2)}\n`;
+
+  // Per-symbol breakdown
+  const bySymbol = {};
+  closed.forEach(t => {
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { trades: 0, pnl: 0, wins: 0 };
+    bySymbol[t.symbol].trades++;
+    bySymbol[t.symbol].pnl += t.pnl;
+    if (t.pnl > 0) bySymbol[t.symbol].wins++;
+  });
+  s += `\nPER-SYMBOL:\n`;
+  Object.entries(bySymbol).sort((a, b) => b[1].pnl - a[1].pnl).forEach(([sym, d]) => {
+    s += `  ${sym}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}, WR ${((d.wins/d.trades)*100).toFixed(0)}%\n`;
+  });
+
+  // Per-setup breakdown
+  const bySetup = {};
+  closed.filter(t => t.setup).forEach(t => {
+    if (!bySetup[t.setup]) bySetup[t.setup] = { trades: 0, pnl: 0, wins: 0 };
+    bySetup[t.setup].trades++;
+    bySetup[t.setup].pnl += t.pnl;
+    if (t.pnl > 0) bySetup[t.setup].wins++;
+  });
+  if (Object.keys(bySetup).length) {
+    s += `\nPER-SETUP:\n`;
+    Object.entries(bySetup).sort((a, b) => b[1].pnl - a[1].pnl).forEach(([setup, d]) => {
+      s += `  ${setup}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}, WR ${((d.wins/d.trades)*100).toFixed(0)}%\n`;
+    });
+  }
+
+  // Per-day-of-week
+  const byDow = {};
+  closed.forEach(t => {
+    const dow = new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    if (!byDow[dow]) byDow[dow] = { trades: 0, pnl: 0 };
+    byDow[dow].trades++;
+    byDow[dow].pnl += t.pnl;
+  });
+  s += `\nPER-DAY-OF-WEEK:\n`;
+  ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(d => {
+    if (byDow[d]) s += `  ${d}: ${byDow[d].trades} trades, P&L $${byDow[d].pnl.toFixed(2)}\n`;
+  });
+
+  // Best / worst days
+  const byDate = {};
+  closed.forEach(t => {
+    if (!byDate[t.date]) byDate[t.date] = 0;
+    byDate[t.date] += t.pnl;
+  });
+  const sortedDays = Object.entries(byDate).sort((a, b) => b[1] - a[1]);
+  if (sortedDays.length) {
+    s += `\nBest day: ${sortedDays[0][0]} ($${sortedDays[0][1].toFixed(2)})\n`;
+    s += `Worst day: ${sortedDays[sortedDays.length-1][0]} ($${sortedDays[sortedDays.length-1][1].toFixed(2)})\n`;
+  }
+
+  // Most common mistakes
+  const mistakeCount = {};
+  closed.forEach(t => {
+    let mistakes = t.mistakes;
+    if (typeof mistakes === 'string') { try { mistakes = JSON.parse(mistakes); } catch { mistakes = []; } }
+    if (Array.isArray(mistakes)) mistakes.forEach(m => { mistakeCount[m] = (mistakeCount[m] || 0) + 1; });
+  });
+  const topMistakes = Object.entries(mistakeCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (topMistakes.length) {
+    s += `\nTOP MISTAKES:\n`;
+    topMistakes.forEach(([m, c]) => { s += `  "${m}": ${c} times\n`; });
+  }
+
+  // Emotion → P&L correlation
+  const byEmotion = {};
+  closed.filter(t => t.emotionPre).forEach(t => {
+    if (!byEmotion[t.emotionPre]) byEmotion[t.emotionPre] = { trades: 0, pnl: 0 };
+    byEmotion[t.emotionPre].trades++;
+    byEmotion[t.emotionPre].pnl += t.pnl;
+  });
+  if (Object.keys(byEmotion).length) {
+    s += `\nEMOTION BEFORE TRADE → P&L:\n`;
+    Object.entries(byEmotion).sort((a, b) => b[1].pnl - a[1].pnl).forEach(([em, d]) => {
+      s += `  ${em}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}\n`;
+    });
+  }
+
+  // Per-month breakdown (all months with data)
+  const byMonth = {};
+  closed.forEach(t => {
+    const month = t.date.substring(0, 7); // YYYY-MM
+    if (!byMonth[month]) byMonth[month] = { trades: 0, pnl: 0, wins: 0 };
+    byMonth[month].trades++;
+    byMonth[month].pnl += t.pnl;
+    if (t.pnl > 0) byMonth[month].wins++;
+  });
+  const sortedMonths = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0]));
+  if (sortedMonths.length) {
+    s += `\nPER-MONTH BREAKDOWN:\n`;
+    sortedMonths.forEach(([month, d]) => {
+      const label = new Date(month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      s += `  ${label}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}, WR ${((d.wins/d.trades)*100).toFixed(0)}%\n`;
+    });
+  }
+
+  // This month's stats
+  const now = new Date();
+  const monthStr = now.toISOString().split('T')[0].substring(0, 7); // YYYY-MM
+  const thisMonth = closed.filter(t => t.date.startsWith(monthStr));
+  if (thisMonth.length) {
+    const monthPnl = thisMonth.reduce((s, t) => s + t.pnl, 0);
+    const monthWins = thisMonth.filter(t => t.pnl > 0).length;
+    const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    s += `\nTHIS MONTH (${monthLabel}):\n`;
+    s += `  ${thisMonth.length} trades, P&L $${monthPnl.toFixed(2)}, WR ${((monthWins/thisMonth.length)*100).toFixed(0)}%\n`;
+  }
+
+  // This week's stats
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  const weekStr = weekStart.toISOString().split('T')[0];
+  const thisWeek = closed.filter(t => t.date >= weekStr);
+  if (thisWeek.length) {
+    const weekPnl = thisWeek.reduce((s, t) => s + t.pnl, 0);
+    const weekWins = thisWeek.filter(t => t.pnl > 0).length;
+    s += `\nTHIS WEEK (since ${weekStr}):\n`;
+    s += `  ${thisWeek.length} trades, P&L $${weekPnl.toFixed(2)}, WR ${((weekWins/thisWeek.length)*100).toFixed(0)}%\n`;
+  }
+
+  // Today's stats
+  const todayStr = now.toISOString().split('T')[0];
+  const today = closed.filter(t => t.date === todayStr);
+  if (today.length) {
+    const todayPnl = today.reduce((s, t) => s + t.pnl, 0);
+    s += `\nTODAY (${todayStr}):\n`;
+    s += `  ${today.length} trades, P&L $${todayPnl.toFixed(2)}\n`;
+  }
+
+  // Date range of all data
+  const dates = closed.map(t => t.date).sort();
+  if (dates.length) {
+    s += `\nDATA RANGE: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} closed trades total)\n`;
+  }
+
+  // Rule compliance
+  const ruleRows = db.prepare('SELECT * FROM rules WHERE active = 1').all();
+  if (ruleRows.length) {
+    const checks = db.prepare('SELECT * FROM rule_checks ORDER BY date DESC LIMIT 500').all();
+    const totalChecks = checks.length;
+    const followed = checks.filter(c => c.followed).length;
+    if (totalChecks) {
+      s += `\nRULE COMPLIANCE: ${((followed/totalChecks)*100).toFixed(0)}% (${followed}/${totalChecks} checks followed)\n`;
+    }
+  }
+
+  return s;
+}
+
 // ── GET /ai/affirmation — Daily stoic affirmation ────────────────
 app.get('/ai/affirmation', async (req, res) => {
   try {

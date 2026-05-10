@@ -13,6 +13,7 @@ import PnLCalendar from './components/PnLCalendar';
 import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import MindfulLogo from './components/MindfulLogo';
 import TradingIntelligence from './components/TradingIntelligence';
+import AIChatPanel from './components/AIChatPanel';
 import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile, PsychProfilePeriod, DeepAnalysis, DeepAnalysisPeriod } from './types';
 
 // ─── API CONFIGURATION ────────────────────────────────────────
@@ -624,7 +625,8 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-background flex transition-colors duration-300 relative">
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
-      
+      <AIChatPanel />
+
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-sidebarBg border-r border-surfaceHighlight flex flex-col transition-transform duration-300 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:static'}`}>
         <div className="p-6 flex items-center gap-3 group cursor-default">

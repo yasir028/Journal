@@ -154,6 +154,36 @@ export const deletePsychProfile = async (id: string): Promise<void> => {
   await fetch(`/psych_profiles/${id}`, { method: 'DELETE' });
 };
 
+// ── getQAResponse ────────────────────────────────────────────────
+// Data-aware Q&A chat. The backend loads 90 days of trades, computes
+// aggregated statistics, and injects both stats + journal context so
+// the model can answer analytical questions accurately.
+//
+export const getQAResponse = async (
+  userMessage: string,
+  history: ChatMessage[] = []
+): Promise<string> => {
+  try {
+    const res = await fetch(`${AI_BASE}/qa`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message: userMessage, history }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.hint || err.error || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (data.error) throw new Error(data.hint || data.error);
+    return data.reply || 'No response.';
+  } catch (error: any) {
+    console.error('[ollamaService] getQAResponse error:', error);
+    return `AI offline: ${error.message || 'Is Ollama running? (ollama serve)'}`;
+  }
+};
+
 // ── checkOllamaStatus ────────────────────────────────────────────
 // Returns whether Ollama is running and which models are available.
 // Use this to show a setup prompt if Ollama is not detected.
