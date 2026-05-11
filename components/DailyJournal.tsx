@@ -1,16 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trade, DailyAnalysis, DailyReview, TradeStatus } from '../types';
+import { Trade, DailyAnalysis, DailyReview, TradeStatus, Playbook } from '../types';
 import {
   FileText, Calendar, Search, Filter,
   MoreHorizontal, BrainCircuit, ChevronDown, ChevronUp, Save,
   Download, X, FileDown, Loader2
 } from 'lucide-react';
+import TradeDetail from './TradeDetail';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import RichTextEditor from './RichTextEditor';
 import { generateReport, generateObsidianReport, getDateRange, ReportPeriod } from '../services/reportService';
 
 interface DailyJournalProps {
   trades: Trade[];
+  playbooks?: Playbook[];
   dailyAnalysis: DailyAnalysis;
   dailyReviews?: DailyReview;
   onSaveReview: (date: string, text: string) => void;
@@ -18,7 +20,7 @@ interface DailyJournalProps {
   onNavigateToTrade?: (tradeId: string) => void;
 }
 
-const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate, onNavigateToTrade }) => {
+const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate }) => {
   // --- STATE ---
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
   const [tfCustomStart, setTfCustomStart] = useState('');
@@ -66,6 +68,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
   }, [allDates, timeframe, tfCustomStart, tfCustomEnd]);
 
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || filteredDates[0] || new Date().toISOString().split('T')[0]);
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [showPreMarket, setShowPreMarket] = useState(true);
   const [reviewText, setReviewText] = useState('');
 
@@ -340,7 +343,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
               todaysTrades.map((trade) => (
                 <div
                   key={trade.id}
-                  onClick={() => onNavigateToTrade?.(trade.id)}
+                  onClick={() => setSelectedTradeId(trade.id)}
                   className="flex items-center justify-between p-3 bg-surface rounded-lg border border-surfaceHighlight hover:border-primary/50 cursor-pointer transition-all group"
                 >
                   <div className="flex items-center gap-4">
@@ -559,6 +562,21 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, dailyAnalysis, dail
           </div>
         </div>
       )}
+
+      {/* Inline Trade Detail Modal */}
+      {selectedTradeId && (() => {
+        const trade = trades.find(t => t.id === selectedTradeId);
+        if (!trade) return null;
+        return (
+          <TradeDetail
+            trade={trade}
+            trades={trades}
+            playbooks={playbooks}
+            onClose={() => setSelectedTradeId(null)}
+            onNavigate={(id) => setSelectedTradeId(id)}
+          />
+        );
+      })()}
     </div>
   );
 };

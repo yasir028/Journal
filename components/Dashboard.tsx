@@ -2,7 +2,8 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
 import { Trade, TradeStatus, Playbook, RuleCheck, Rule, RuleSettings } from '../types';
-import { ChevronLeft, ChevronRight, ChevronDown, Info, Calendar as CalendarIcon, BarChart2, AlertTriangle, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Info, Calendar as CalendarIcon, BarChart2, AlertTriangle, Plus } from 'lucide-react';
+import TradeDetail from './TradeDetail';
 
 interface DashboardProps {
   trades: Trade[];
@@ -43,6 +44,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
   const [customEnd, setCustomEnd] = useState('');
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const [recentTab, setRecentTab] = useState<'recent' | 'open'>('recent');
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const [expandedMistake, setExpandedMistake] = useState<string | null>(null);
   const monthPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -243,19 +246,6 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     });
   }, [filteredTrades]);
 
-  // --- ACCOUNT BALANCE (Cumulative over ALL closed trades) ---
-  const accountBalanceData = useMemo(() => {
-    let balance = 0;
-    const allClosed = [...trades].filter(t => t.status === TradeStatus.CLOSED).sort((a, b) => a.date.localeCompare(b.date));
-    // Aggregate by date
-    const dateMap: Record<string, number> = {};
-    allClosed.forEach(t => { dateMap[t.date] = (dateMap[t.date] || 0) + (t.pnl || 0); });
-    return Object.entries(dateMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, pnl]) => {
-      balance += pnl;
-      return { date, balance };
-    });
-  }, [trades]);
-
   // --- RECENT TRADES / OPEN POSITIONS ---
   const recentTradesData = useMemo(() => {
     const recent = [...trades].filter(t => t.status === TradeStatus.CLOSED).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
@@ -263,70 +253,23 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     return { recent, open };
   }, [trades]);
 
-  // --- PROGRESS TRACKER HEATMAP ---
-  const progressData = useMemo(() => {
-    // Build a heatmap of trading activity for the last ~14 weeks
-    const today = new Date();
-    const weeks = 14;
-    const cells: Array<{ date: string; dayOfWeek: number; weekIdx: number; intensity: number }> = [];
-
-    // Find the start: go back 'weeks' weeks from the most recent Sunday
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - startDate.getDay() - (weeks - 1) * 7);
-
-    // Build daily P&L map from all closed trades
-    const dailyPnl: Record<string, number> = {};
-    trades.filter(t => t.status === TradeStatus.CLOSED).forEach(t => {
-      dailyPnl[t.date] = (dailyPnl[t.date] || 0) + (t.pnl || 0);
+  // --- MISTAKE GROUPS (from filteredTrades) ---
+  const mistakeGroups = useMemo(() => {
+    const map = new Map<string, { trades: Trade[]; totalPnl: number }>();
+    filteredTrades.forEach(t => {
+      if (!t.mistakes || t.mistakes.length === 0) return;
+      t.mistakes.forEach(m => {
+        if (!m.trim()) return;
+        if (!map.has(m)) map.set(m, { trades: [], totalPnl: 0 });
+        const g = map.get(m)!;
+        g.trades.push(t);
+        g.totalPnl += t.pnl || 0;
+      });
     });
-
-    // Also use ruleChecks for compliance data
-    const dailyCompliance: Record<string, { followed: number; total: number }> = {};
-    const activeRules = rules.filter(r => r.active);
-    ruleChecks.forEach(c => {
-      if (!dailyCompliance[c.date]) dailyCompliance[c.date] = { followed: 0, total: 0 };
-      dailyCompliance[c.date].total++;
-      if (c.followed) dailyCompliance[c.date].followed++;
-    });
-
-    for (let w = 0; w < weeks; w++) {
-      for (let d = 0; d < 7; d++) {
-        const cellDate = new Date(startDate);
-        cellDate.setDate(startDate.getDate() + w * 7 + d);
-        const dateStr = `${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(cellDate.getDate()).padStart(2, '0')}`;
-
-        let intensity = 0;
-        // Priority: rule compliance, then trading activity
-        if (dailyCompliance[dateStr] && dailyCompliance[dateStr].total > 0) {
-          intensity = dailyCompliance[dateStr].followed / dailyCompliance[dateStr].total;
-        } else if (dailyPnl[dateStr] !== undefined) {
-          intensity = dailyPnl[dateStr] > 0 ? 0.8 : dailyPnl[dateStr] < 0 ? 0.3 : 0.1;
-        }
-
-        cells.push({ date: dateStr, dayOfWeek: d, weekIdx: w, intensity });
-      }
-    }
-
-    // Today's rule score
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const todayChecks = ruleChecks.filter(c => c.date === todayStr);
-    const todayFollowed = todayChecks.filter(c => c.followed).length;
-
-    // Get month labels for weeks
-    const monthLabels: Array<{ label: string; weekIdx: number }> = [];
-    let lastMonth = -1;
-    for (let w = 0; w < weeks; w++) {
-      const cellDate = new Date(startDate);
-      cellDate.setDate(startDate.getDate() + w * 7);
-      const m = cellDate.getMonth();
-      if (m !== lastMonth) {
-        monthLabels.push({ label: cellDate.toLocaleString('default', { month: 'short' }), weekIdx: w });
-        lastMonth = m;
-      }
-    }
-
-    return { cells, todayScore: todayFollowed, todayTotal: activeRules.length, monthLabels };
-  }, [trades, ruleChecks, rules]);
+    return Array.from(map.entries())
+      .map(([name, { trades, totalPnl }]) => ({ name, trades, totalPnl, count: trades.length }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredTrades]);
 
   // --- CALENDAR ---
   const calendarData = useMemo(() => {
@@ -382,15 +325,6 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
   };
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  // Heatmap color helper
-  const getHeatColor = (intensity: number) => {
-    if (intensity <= 0) return 'var(--surface-highlight)';
-    if (intensity < 0.25) return 'rgba(59,130,246,0.2)';
-    if (intensity < 0.5) return 'rgba(59,130,246,0.4)';
-    if (intensity < 0.75) return 'rgba(59,130,246,0.6)';
-    return 'rgba(59,130,246,0.85)';
-  };
 
   return (
     <div className="space-y-6">
@@ -548,8 +482,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
         </div>
       </div>
 
-      {/* ═══════════════ MIDDLE ROW: Score | Progress | Cumulative ═══════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ═══════════════ MIDDLE ROW: Score | Cumulative ═══════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Performance Score (Zella Score style) */}
         <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
@@ -595,57 +529,6 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
           </div>
         </div>
 
-        {/* Progress Tracker */}
-        <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-surfaceHighlight flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-text">Progress Tracker</h3>
-              <Info size={12} className="text-textMuted opacity-40" />
-            </div>
-            <span className="text-xs text-primary cursor-pointer hover:underline" onClick={() => onNavigateToRules && onNavigateToRules()}>View more</span>
-          </div>
-          <div className="p-4">
-            {/* Month labels */}
-            <div className="flex gap-0.5 mb-1 ml-8">
-              {progressData.monthLabels.map((ml, i) => (
-                <span key={i} className="text-[10px] text-textMuted" style={{ marginLeft: ml.weekIdx > 0 ? `${(ml.weekIdx - (i > 0 ? progressData.monthLabels[i-1].weekIdx : 0) - 1) * 14}px` : 0 }}>{ml.label}</span>
-              ))}
-            </div>
-            {/* Heatmap Grid */}
-            <div className="flex gap-1">
-              <div className="flex flex-col gap-0.5 mr-1">
-                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-                  <div key={d} className="h-3 flex items-center text-[9px] text-textMuted leading-none">{d}</div>
-                ))}
-              </div>
-              <div className="grid gap-0.5" style={{ gridTemplateRows: 'repeat(7, 12px)', gridAutoFlow: 'column', gridAutoColumns: '12px' }}>
-                {progressData.cells.map((cell, idx) => (
-                  <div key={idx} className="w-3 h-3 rounded-[2px] transition-colors" style={{ backgroundColor: getHeatColor(cell.intensity) }}
-                    title={`${cell.date}: ${Math.round(cell.intensity * 100)}%`} />
-                ))}
-              </div>
-            </div>
-            {/* Legend */}
-            <div className="flex items-center gap-1 mt-3 justify-end">
-              <span className="text-[10px] text-textMuted">Less</span>
-              {[0, 0.2, 0.4, 0.6, 0.85].map((v, i) => (
-                <div key={i} className="w-3 h-3 rounded-[2px]" style={{ backgroundColor: getHeatColor(v) }} />
-              ))}
-              <span className="text-[10px] text-textMuted">More</span>
-            </div>
-            {/* Today's Score */}
-            <div className="mt-4 pt-4 border-t border-surfaceHighlight flex items-center justify-between">
-              <div>
-                <p className="text-xs text-textMuted flex items-center gap-1">Today's score <Info size={10} className="opacity-40" /></p>
-                <p className="text-2xl font-bold text-text">{progressData.todayScore}/{progressData.todayTotal}</p>
-              </div>
-              <button className="text-xs bg-surfaceHighlight hover:bg-primary/10 text-textMuted hover:text-primary px-3 py-1.5 rounded-lg transition-colors font-medium">
-                Daily checklist
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* Daily Net Cumulative P&L */}
         <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
           <div className="p-4 border-b border-surfaceHighlight flex items-center gap-2">
@@ -672,7 +555,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
         </div>
       </div>
 
-      {/* ═══════════════ THIRD ROW: Daily P&L | Recent Trades | Account Balance ═══════════════ */}
+      {/* ═══════════════ THIRD ROW: Daily P&L | Recent Trades | Drawdown ═══════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Net Daily P&L */}
@@ -736,50 +619,39 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
           </div>
         </div>
 
-        {/* Account Balance */}
+        {/* Drawdown */}
         <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
           <div className="p-4 border-b border-surfaceHighlight flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-text">Account Balance</h3>
+            <h3 className="text-sm font-semibold text-text">Drawdown</h3>
             <Info size={12} className="text-textMuted opacity-40" />
           </div>
-          <div className="p-4">
-            <div className="flex items-center gap-4 mb-3">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-primary/60"></div>
-                <span className="text-[10px] text-textMuted">Account Balance</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-danger/60"></div>
-                <span className="text-[10px] text-textMuted">Deposits / Withdrawals</span>
-              </div>
-            </div>
-            <div className="h-[230px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={accountBalanceData}>
-                  <defs>
-                    <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
-                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Balance']} />
-                  <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorBalance)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="p-4 h-[280px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={drawdownData}>
+                <defs>
+                  <linearGradient id="colorDrawdown" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
+                <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
+                <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${v}`} />
+                <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Drawdown']} />
+                <ReferenceLine y={0} stroke="var(--text-muted)" strokeOpacity={0.3} />
+                <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1.5} fillOpacity={1} fill="url(#colorDrawdown)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* ═══════════════ BOTTOM ROW: Calendar + Drawdown ═══════════════ */}
+      {/* ═══════════════ BOTTOM ROW: Calendar (full width) ═══════════════ */}
       {(timeframe === 'month' || timeframe === 'year') && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 gap-6">
 
           {/* P&L Calendar */}
-          <div className="lg:col-span-3 bg-surface rounded-xl border border-surfaceHighlight overflow-visible relative shadow-sm">
+          <div className="bg-surface rounded-xl border border-surfaceHighlight overflow-visible relative shadow-sm">
             <div className="p-4 border-b border-surfaceHighlight flex flex-col md:flex-row justify-between items-center gap-3">
               <div className="flex items-center gap-3">
                 <button onClick={() => handleNav(-1)} className="p-1 hover:bg-surfaceHighlight rounded text-textMuted"><ChevronLeft size={16} /></button>
@@ -876,33 +748,99 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
             </div>
           </div>
 
-          {/* Drawdown Chart */}
-          <div className="lg:col-span-2 bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-surfaceHighlight flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-text">Drawdown</h3>
-              <Info size={12} className="text-textMuted opacity-40" />
-            </div>
-            <div className="p-4 h-[350px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={drawdownData}>
-                  <defs>
-                    <linearGradient id="colorDrawdown" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                  <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} tickMargin={8} minTickGap={40} />
-                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => `$${v}`} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', fontSize: 12 }} formatter={(val: number) => [`$${val.toLocaleString()}`, 'Drawdown']} />
-                  <ReferenceLine y={0} stroke="var(--text-muted)" strokeOpacity={0.3} />
-                  <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1.5} fillOpacity={1} fill="url(#colorDrawdown)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+        </div>
+      )}
+
+      {/* ═══════════════ MISTAKES BREAKDOWN ═══════════════ */}
+      {mistakeGroups.length > 0 && (
+        <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-surfaceHighlight flex items-center gap-2">
+            <AlertTriangle size={16} className="text-danger" />
+            <h3 className="text-sm font-semibold text-text">Mistakes Breakdown</h3>
+            <span className="ml-auto text-[10px] text-textMuted bg-surfaceHighlight px-2 py-0.5 rounded-full">
+              {mistakeGroups.reduce((a, g) => a + g.count, 0)} total across {mistakeGroups.length} type{mistakeGroups.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="divide-y divide-surfaceHighlight">
+            {mistakeGroups.map(group => (
+              <div key={group.name}>
+                {/* Mistake row header */}
+                <button
+                  onClick={() => setExpandedMistake(expandedMistake === group.name ? null : group.name)}
+                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surfaceHighlight/40 transition-colors text-left"
+                >
+                  <div className="flex-1 flex items-center gap-3 min-w-0">
+                    <div className="w-2 h-2 rounded-full bg-danger/70 shrink-0" />
+                    <span className="text-sm font-medium text-text truncate">{group.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <span className="text-xs text-textMuted">{group.count} trade{group.count !== 1 ? 's' : ''}</span>
+                    <span className={`text-xs font-semibold tabular-nums ${group.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                      {group.totalPnl >= 0 ? '+' : ''}${group.totalPnl.toFixed(0)}
+                    </span>
+                    {expandedMistake === group.name
+                      ? <ChevronUp size={14} className="text-textMuted" />
+                      : <ChevronDown size={14} className="text-textMuted" />}
+                  </div>
+                </button>
+
+                {/* Expanded trades list */}
+                {expandedMistake === group.name && (
+                  <div className="bg-background/50 border-t border-surfaceHighlight">
+                    {group.trades.sort((a, b) => b.date.localeCompare(a.date)).map(trade => (
+                      <button
+                        key={trade.id}
+                        onClick={() => setSelectedTradeId(trade.id)}
+                        className="w-full flex items-center gap-4 px-6 py-3 hover:bg-surfaceHighlight/50 transition-colors text-left border-b border-surfaceHighlight/40 last:border-0"
+                      >
+                        <div className={`w-1 h-8 rounded-full shrink-0 ${trade.type === 'LONG' ? 'bg-success' : 'bg-danger'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-text">{trade.symbol}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${trade.type === 'LONG' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                              {trade.type}
+                            </span>
+                            {trade.setup && (
+                              <span className="text-[10px] text-textMuted bg-surfaceHighlight px-1.5 rounded truncate max-w-[120px]">{trade.setup}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-textMuted">{trade.date}</span>
+                            {trade.entryTime && <span className="text-[10px] text-textMuted">{trade.entryTime}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-sm font-bold ${(trade.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                            {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-textMuted">{trade.quantity} units</p>
+                        </div>
+                        <ChevronRight size={14} className="text-textMuted shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
+
+      {/* Trade Detail Modal */}
+      {selectedTradeId && (() => {
+        const trade = filteredTrades.find(t => t.id === selectedTradeId)
+          || trades.find(t => t.id === selectedTradeId);
+        if (!trade) return null;
+        return (
+          <TradeDetail
+            trade={trade}
+            trades={filteredTrades.length > 0 ? filteredTrades : trades}
+            playbooks={playbooks}
+            onClose={() => setSelectedTradeId(null)}
+            onNavigate={(id) => setSelectedTradeId(id)}
+          />
+        );
+      })()}
     </div>
   );
 };
