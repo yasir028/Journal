@@ -750,13 +750,13 @@ const App: React.FC = () => {
          )}
          
          {view === 'daily_journal' && (
-           <DailyJournal 
-              trades={activeTrades} 
-              dailyAnalysis={dailyAnalysis} 
-              dailyReviews={dailyReviews} 
+           <DailyJournal
+              trades={activeTrades}
+              playbooks={playbooks}
+              dailyAnalysis={dailyAnalysis}
+              dailyReviews={dailyReviews}
               onSaveReview={handleSaveDailyReview}
-              initialDate={journalDate} 
-              onNavigateToTrade={(id) => { setFocusedTradeId(id); setView('journal'); }} 
+              initialDate={journalDate}
             />
          )}
 
@@ -797,9 +797,10 @@ const App: React.FC = () => {
 
          {view === 'mindfulness' && (
            <Mindfulness
-             trades={activeTrades}
              dailyAnalysis={dailyAnalysis}
+             dailyReviews={dailyReviews}
              onSaveAnalysis={handleSaveDailyAnalysis}
+             onSaveReview={handleSaveDailyReview}
             />
           )}
          
