@@ -16,6 +16,7 @@ const cors       = require('cors');
 const bodyParser = require('body-parser');
 const Database   = require('better-sqlite3');
 const path       = require('path');
+const fs         = require('fs');
 
 // ── CONFIG ──────────────────────────────────────────────────────
 const PORT       = 3001;
@@ -1395,6 +1396,113 @@ ${context}`;
     });
   }
 });
+
+// ============================================================
+// OBSIDIAN INTEGRATION
+// ============================================================
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`).run();
+
+app.get('/obsidian/path', (req, res) => {
+  try {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'obsidian_daily_logs_path'").get();
+    res.json({ path: row ? row.value : '' });
+  } catch (e) {
+    res.json({ path: '' });
+  }
+});
+
+app.post('/obsidian/path', (req, res) => {
+  try {
+    const { vaultPath } = req.body;
+    db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('obsidian_daily_logs_path', ?)").run(vaultPath || '');
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/obsidian/load/:date', (req, res) => {
+  try {
+    const { date } = req.params;
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'obsidian_daily_logs_path'").get();
+    if (!row || !row.value) {
+      return res.status(400).json({ error: 'no-path' });
+    }
+
+    const yearMonth = date.substring(0, 7);
+    const filename  = `${date} Daily Journal.md`;
+    const filePath  = path.join(row.value, yearMonth, filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'not-found', filename });
+    }
+
+    const raw = fs.readFileSync(filePath, 'utf8');
+
+    const DEBRIEF_MARKER = '\u{1F4DD} Daily Debrief';
+    const splitIdx = raw.indexOf(DEBRIEF_MARKER);
+    const preRaw   = splitIdx > -1 ? raw.substring(0, splitIdx).trim() : raw.trim();
+    const postRaw  = splitIdx > -1 ? raw.substring(splitIdx).trim()    : '';
+
+    const mdToHtml = (md) => {
+      const lines = md.split('\n');
+      let html    = '';
+      let inList  = false;
+
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) {
+          if (inList) { html += '</ul>'; inList = false; }
+          continue;
+        }
+        if (t.startsWith('<%') && t.includes('%>')) continue;
+
+        if (/^[-*]\s/.test(t)) {
+          if (!inList) { html += '<ul style="margin:0.25rem 0 0.25rem 1.25rem;list-style:disc;">'; inList = true; }
+          html += `<li style="margin:0.15rem 0;">${t.replace(/^[-*]\s/, '')}</li>`;
+          continue;
+        }
+        if (/^\d+\.\s/.test(t)) {
+          if (!inList) { html += '<ul style="margin:0.25rem 0 0.25rem 1.25rem;list-style:decimal;">'; inList = true; }
+          html += `<li style="margin:0.15rem 0;">${t.replace(/^\d+\.\s/, '')}</li>`;
+          continue;
+        }
+        if (inList) { html += '</ul>'; inList = false; }
+
+        const emojiRe = /^[\u{1F300}-\u{1FFFF}\u{2600}-\u{27BF}]/u;
+        if (emojiRe.test(t) || /^[\u{1F4D0}\u{1F4DD}\u{1F9D8}\u{2705}\u{1F3AF}\u{1F4CA}\u{1F310}]/u.test(t)) {
+          html += `<h3 style="margin:1rem 0 0.25rem;font-weight:700;font-size:0.85rem;opacity:0.9;">${t}</h3>`;
+          continue;
+        }
+        if (t.endsWith(':') && t.length < 60) {
+          html += `<p style="font-weight:600;margin:0.4rem 0 0.1rem;">${t}</p>`;
+          continue;
+        }
+        html += `<p style="margin:0.1rem 0;line-height:1.5;">${t}</p>`;
+      }
+      if (inList) html += '</ul>';
+      return html;
+    };
+
+    res.json({
+      preMarket:  mdToHtml(preRaw),
+      postMarket: mdToHtml(postRaw),
+      filename,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// END OBSIDIAN INTEGRATION
+// ============================================================
 
 // ── START ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {

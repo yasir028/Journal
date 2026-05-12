@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckInSettings, Trade, TradeType, Playbook } from '../types';
-import { Save, Download, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X, FileUp, Eye, ArrowRight, RefreshCw, ChevronDown } from 'lucide-react';
+import { Save, Download, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X, FileUp, Eye, ArrowRight, RefreshCw, ChevronDown, FolderOpen } from 'lucide-react';
 import { parseCSV, BrokerFormat } from '../services/brokerParsers';
 
 interface SettingsProps {
@@ -66,6 +66,19 @@ const Settings: React.FC<SettingsProps> = ({
   const [dragOver, setDragOver] = useState(false);
   const [detectedFormat, setDetectedFormat] = useState<BrokerFormat | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Obsidian Integration
+  const [obsidianPath,       setObsidianPath]       = useState('');
+  const [obsidianSaveStatus, setObsidianSaveStatus] = useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const [obsidianTestStatus, setObsidianTestStatus] = useState<'idle'|'testing'|'ok'|'error'>('idle');
+  const [obsidianTestMsg,    setObsidianTestMsg]    = useState('');
+
+  useEffect(() => {
+    fetch('http://localhost:3001/obsidian/path')
+      .then(r => r.json())
+      .then(d => { if (d.path) setObsidianPath(d.path); })
+      .catch(() => {});
+  }, []);
 
   // ── Broker File Handler ───────────────────────────────────────
   const handleBrokerFile = useCallback((file: File) => {
@@ -187,6 +200,52 @@ const Settings: React.FC<SettingsProps> = ({
     if (onUpdatePlaybooks && window.confirm('Are you sure you want to delete this playbook? Trades using it will keep the ID but lose the reference.')) {
       onUpdatePlaybooks(playbooks.filter(p => p.id !== id));
     }
+  };
+
+  const handleSaveObsidianPath = async () => {
+    setObsidianSaveStatus('saving');
+    try {
+      const res = await fetch('http://localhost:3001/obsidian/path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vaultPath: obsidianPath.trim() }),
+      });
+      if (res.ok) {
+        setObsidianSaveStatus('saved');
+        setTimeout(() => setObsidianSaveStatus('idle'), 2500);
+      } else {
+        setObsidianSaveStatus('error');
+      }
+    } catch {
+      setObsidianSaveStatus('error');
+    }
+  };
+
+  const handleTestObsidianPath = async () => {
+    setObsidianTestStatus('testing');
+    setObsidianTestMsg('');
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const res  = await fetch(`http://localhost:3001/obsidian/load/${today}`);
+      const data = await res.json();
+      if (res.ok) {
+        setObsidianTestStatus('ok');
+        setObsidianTestMsg(`✅ Connected! Found: ${data.filename}`);
+      } else if (data.error === 'no-path') {
+        setObsidianTestStatus('error');
+        setObsidianTestMsg('❌ Save your path first, then test.');
+      } else if (data.error === 'not-found') {
+        setObsidianTestStatus('error');
+        setObsidianTestMsg(`⚠️ Path is correct but no note for today (${data.filename}). Will work on days you have notes.`);
+      } else {
+        setObsidianTestStatus('error');
+        setObsidianTestMsg(`❌ ${data.error}`);
+      }
+    } catch {
+      setObsidianTestStatus('error');
+      setObsidianTestMsg('❌ Could not reach server. Is server.cjs running?');
+    }
+    setTimeout(() => { setObsidianTestStatus('idle'); setObsidianTestMsg(''); }, 7000);
   };
 
   // --- CSV EXPORT ---
@@ -676,6 +735,82 @@ const Settings: React.FC<SettingsProps> = ({
                <Save size={18} />
                Save Preferences
              </button>
+          </div>
+        </div>
+      </div>
+      {/* OBSIDIAN INTEGRATION SECTION */}
+      <div>
+        <h2 className="text-2xl font-bold text-text mb-6">Obsidian Integration</h2>
+        <div className="bg-surface rounded-xl border border-surfaceHighlight overflow-hidden">
+          <div className="p-6 border-b border-surfaceHighlight">
+            <h3 className="text-lg font-semibold text-text mb-1 flex items-center gap-2">
+              <FolderOpen size={18} className="text-accent" />
+              Daily Logs Folder
+            </h3>
+            <p className="text-sm text-textMuted">
+              Paste the path to your Obsidian <strong className="text-text">Daily logs</strong> folder once.
+              The app will find each day's note automatically inside the correct month subfolder.
+            </p>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="bg-surfaceHighlight/30 border border-surfaceHighlight rounded-lg p-4 text-xs text-textMuted space-y-1.5">
+              <p className="font-semibold text-text text-sm mb-2">How to find your path:</p>
+              <p>1. Open <strong className="text-text">File Explorer</strong></p>
+              <p>2. Navigate to your vault → <code className="bg-surfaceHighlight px-1 rounded">03 - Notes</code> → <code className="bg-surfaceHighlight px-1 rounded">Trading</code> → <code className="bg-surfaceHighlight px-1 rounded">Daily logs</code></p>
+              <p>3. Click the address bar at the top — it shows the full path. Copy it and paste below.</p>
+              <p className="font-mono bg-background px-3 py-1.5 rounded border border-surfaceHighlight text-text mt-2">
+                Example: C:\Users\Yasir\Documents\MyVault\03 - Notes\Trading\Daily logs
+              </p>
+            </div>
+
+            <div className="flex gap-3 items-center">
+              <input
+                type="text"
+                value={obsidianPath}
+                onChange={e => setObsidianPath(e.target.value)}
+                placeholder="C:\Users\Yasir\Documents\MyVault\03 - Notes\Trading\Daily logs"
+                className="flex-1 bg-background border border-surfaceHighlight rounded-lg px-4 py-2.5 text-sm text-text font-mono outline-none focus:border-accent transition-colors"
+              />
+              <button
+                onClick={handleSaveObsidianPath}
+                disabled={obsidianSaveStatus === 'saving' || !obsidianPath.trim()}
+                className={`px-4 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 shrink-0 ${
+                  obsidianSaveStatus === 'saved'
+                    ? 'bg-success/20 text-success border border-success/30'
+                    : 'bg-accent text-white hover:bg-accent/80 disabled:opacity-50'
+                }`}
+              >
+                <Save size={15} />
+                {obsidianSaveStatus === 'saving' ? 'Saving…'
+                  : obsidianSaveStatus === 'saved' ? 'Saved ✓'
+                  : 'Save Path'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleTestObsidianPath}
+                disabled={obsidianTestStatus === 'testing'}
+                className="flex items-center gap-2 px-4 py-2 bg-surfaceHighlight hover:bg-gray-700 text-text text-sm font-medium rounded-lg border border-gray-600 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={obsidianTestStatus === 'testing' ? 'animate-spin' : ''} />
+                {obsidianTestStatus === 'testing' ? 'Testing…' : 'Test Connection'}
+              </button>
+              {obsidianTestMsg && (
+                <p className={`text-xs ${obsidianTestStatus === 'ok' ? 'text-success' : 'text-amber-400'}`}>
+                  {obsidianTestMsg}
+                </p>
+              )}
+            </div>
+
+            <div className="bg-accent/5 border border-accent/20 rounded-lg p-4 text-xs text-textMuted space-y-1">
+              <p className="font-semibold text-text mb-1">How this works:</p>
+              <p>• Your Obsidian note is split at the <strong className="text-text">📝 Daily Debrief</strong> line</p>
+              <p>• Everything above → loads into <strong className="text-text">Pre-Market Context</strong></p>
+              <p>• Everything below → loads into <strong className="text-text">End-of-Day Review</strong></p>
+              <p>• Use the <strong className="text-text">Sync from Obsidian</strong> button in the Mindfulness page to load any day's note</p>
+              <p>• Today's note auto-loads when you open the Journal (if no saved data exists yet for that day)</p>
+            </div>
           </div>
         </div>
       </div>

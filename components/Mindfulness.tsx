@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Zap, Book, Calendar, Plus, Save, CheckSquare, Moon } from 'lucide-react';
+import { AlertTriangle, Zap, Book, Calendar, Plus, Save, CheckSquare, Moon, RefreshCw } from 'lucide-react';
 import { DailyAnalysis, DailyReview } from '../types';
 import { generateDailyAffirmation } from '../services/ollamaService';
 import RichTextEditor from './RichTextEditor';
@@ -31,6 +31,9 @@ const Mindfulness: React.FC<MindfulnessProps> = ({
   const [reviewText, setReviewText] = useState('');
   const [checklist, setChecklist] = useState<boolean[]>(new Array(CHECKLIST_ITEMS.length).fill(false));
 
+  // Obsidian Sync
+  const [obsidianStatus, setObsidianStatus] = useState<'idle'|'loading'|'loaded'|'not-found'|'no-path'|'error'>('idle');
+
   useEffect(() => { generateDailyAffirmation().then(setAffirmation); }, []);
 
   useEffect(() => {
@@ -54,6 +57,27 @@ const Mindfulness: React.FC<MindfulnessProps> = ({
   const handleAddTemplate = () => {
     const tpl = `\n## Market Plan\n- **Context:** \n- **Key Levels:** \n- **Bias:** Neutral/Bullish/Bearish\n\n## Scenarios\n1. If price holds ... then ...\n2. If price breaks ... then ...\n`;
     setAnalysisText(prev => prev + tpl);
+  };
+
+  const loadFromObsidian = async () => {
+    setObsidianStatus('loading');
+    try {
+      const res  = await fetch(`http://localhost:3001/obsidian/load/${selectedDate}`);
+      const data = await res.json();
+      if (res.ok) {
+        if (data.preMarket) setAnalysisText(data.preMarket);
+        if (data.postMarket) setReviewText(data.postMarket);
+        setObsidianStatus('loaded');
+      } else if (data.error === 'no-path') {
+        setObsidianStatus('no-path');
+      } else if (data.error === 'not-found') {
+        setObsidianStatus('not-found');
+      } else {
+        setObsidianStatus('error');
+      }
+    } catch {
+      setObsidianStatus('error');
+    }
   };
 
   const readiness = checklist.filter(Boolean).length;
@@ -125,31 +149,68 @@ const Mindfulness: React.FC<MindfulnessProps> = ({
             </p>
           </div>
         </div>
+
+        {/* Obsidian Sync */}
+        <div className="bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden">
+          <div className="p-3 space-y-2">
+            <button
+              onClick={loadFromObsidian}
+              disabled={obsidianStatus === 'loading'}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-accent/10 hover:bg-accent/20 text-accent text-xs font-semibold rounded-lg border border-accent/20 transition-all disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={obsidianStatus === 'loading' ? 'animate-spin' : ''} />
+              {obsidianStatus === 'loading' ? 'Syncing…' : 'Sync from Obsidian'}
+            </button>
+            {obsidianStatus === 'loaded' && (
+              <p className="text-[10px] text-success text-center">📓 Obsidian note loaded into editors</p>
+            )}
+            {obsidianStatus === 'not-found' && (
+              <p className="text-[10px] text-amber-400 text-center">No Obsidian note for {selectedDate}</p>
+            )}
+            {obsidianStatus === 'no-path' && (
+              <p className="text-[10px] text-amber-400 text-center">Set your Obsidian path in Settings first</p>
+            )}
+            {obsidianStatus === 'error' && (
+              <p className="text-[10px] text-danger text-center">Sync failed — is server running?</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Main content ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col gap-0 bg-surface rounded-xl border border-surfaceHighlight shadow-sm overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col gap-0 bg-surface rounded-xl border border-surfaceHighlight shadow-sm min-h-0 overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surfaceHighlight shrink-0">
           <h2 className="text-lg font-bold text-text">Trading Journal</h2>
-          <div className="flex items-center gap-2 bg-background border border-surfaceHighlight rounded-lg px-3 py-1.5">
-            <Calendar size={14} className="text-textMuted" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              className="bg-transparent text-sm text-text outline-none cursor-pointer"
-            />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-background border border-surfaceHighlight rounded-lg px-3 py-1.5">
+              <Calendar size={14} className="text-textMuted" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="bg-transparent text-sm text-text outline-none cursor-pointer"
+              />
+            </div>
+            <button
+              onClick={() => {
+                onSaveAnalysis?.(selectedDate, analysisText);
+                onSaveReview?.(selectedDate, reviewText);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all active:scale-95"
+            >
+              <Save size={14} /> Save
+            </button>
           </div>
         </div>
 
         {/* Side-by-side editors */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-surfaceHighlight">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-surfaceHighlight overflow-hidden">
 
           {/* Pre-Market Analysis */}
-          <div className="flex flex-col min-h-0 p-5">
-            <div className="flex items-center justify-between mb-3 shrink-0">
+          <div className="overflow-y-auto p-5">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-text flex items-center gap-2">
                 <Book size={15} className="text-primary" /> Pre-Market Analysis
               </h3>
@@ -162,49 +223,29 @@ const Mindfulness: React.FC<MindfulnessProps> = ({
                 </button>
               </div>
             </div>
-            <p className="text-[11px] text-textMuted mb-3 shrink-0">Market thesis for {selectedDate}</p>
-            <div className="flex-1 min-h-0">
-              <RichTextEditor
-                value={analysisText}
-                onChange={setAnalysisText}
-                placeholder="E.g. SPY is gapping up into resistance at 450..."
-                minHeight="100%"
-              />
-            </div>
-            <div className="flex justify-end mt-3 shrink-0">
-              <button
-                onClick={() => onSaveAnalysis?.(selectedDate, analysisText)}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all active:scale-95"
-              >
-                <Save size={14} /> Save Analysis
-              </button>
-            </div>
+            <p className="text-[11px] text-textMuted mb-3">Market thesis for {selectedDate}</p>
+            <RichTextEditor
+              value={analysisText}
+              onChange={setAnalysisText}
+              placeholder="E.g. SPY is gapping up into resistance at 450..."
+              minHeight="400px"
+            />
           </div>
 
           {/* End of Day Review */}
-          <div className="flex flex-col min-h-0 p-5">
-            <div className="flex items-center justify-between mb-3 shrink-0">
+          <div className="overflow-y-auto p-5">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-text flex items-center gap-2">
                 <Moon size={15} className="text-accent" /> End of Day Review
               </h3>
             </div>
-            <p className="text-[11px] text-textMuted mb-3 shrink-0">Reflect on today's trading</p>
-            <div className="flex-1 min-h-0">
-              <RichTextEditor
-                value={reviewText}
-                onChange={setReviewText}
-                placeholder="What went well? What triggered me? What will I improve tomorrow?"
-                minHeight="100%"
-              />
-            </div>
-            <div className="flex justify-end mt-3 shrink-0">
-              <button
-                onClick={() => onSaveReview?.(selectedDate, reviewText)}
-                className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent/90 transition-all active:scale-95"
-              >
-                <Save size={14} /> Save Review
-              </button>
-            </div>
+            <p className="text-[11px] text-textMuted mb-3">Reflect on today's trading</p>
+            <RichTextEditor
+              value={reviewText}
+              onChange={setReviewText}
+              placeholder="What went well? What triggered me? What will I improve tomorrow?"
+              minHeight="400px"
+            />
           </div>
         </div>
       </div>
