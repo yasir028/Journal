@@ -3,7 +3,7 @@ import { Trade, DailyAnalysis, DailyReview, TradeStatus, Playbook } from '../typ
 import {
   FileText, Calendar, Search, Filter,
   MoreHorizontal, BrainCircuit, ChevronDown, ChevronUp, Save,
-  Download, X, FileDown, Loader2
+  Download, X, FileDown, Loader2, RefreshCw
 } from 'lucide-react';
 import TradeDetail from './TradeDetail';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -72,6 +72,10 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
   const [showPreMarket, setShowPreMarket] = useState(true);
   const [reviewText, setReviewText] = useState('');
 
+  // Obsidian integration
+  const [obsidianPreMarket, setObsidianPreMarket] = useState<string | null>(null);
+  const [obsidianStatus,    setObsidianStatus]    = useState<'idle'|'loading'|'loaded'|'not-found'|'no-path'|'error'>('idle');
+
   // Sync editor text when date or database changes
   useEffect(() => {
     setReviewText(dailyReviews[selectedDate] || '');
@@ -80,6 +84,38 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
   useEffect(() => {
     if (initialDate) setSelectedDate(initialDate);
   }, [initialDate]);
+
+  const loadFromObsidian = async (date: string) => {
+    setObsidianStatus('loading');
+    try {
+      const res  = await fetch(`http://localhost:3001/obsidian/load/${date}`);
+      const data = await res.json();
+      if (res.ok) {
+        setObsidianPreMarket(data.preMarket || null);
+        if (data.postMarket) {
+          setReviewText(data.postMarket);
+        }
+        setObsidianStatus('loaded');
+      } else if (data.error === 'no-path') {
+        setObsidianStatus('no-path');
+      } else if (data.error === 'not-found') {
+        setObsidianStatus('not-found');
+      } else {
+        setObsidianStatus('error');
+      }
+    } catch {
+      setObsidianStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    const hasExistingData = dailyAnalysis[selectedDate] || dailyReviews[selectedDate];
+    setObsidianPreMarket(null);
+    setObsidianStatus('idle');
+    if (!hasExistingData) {
+      loadFromObsidian(selectedDate);
+    }
+  }, [selectedDate]);
 
   // --- HANDLERS ---
   const handleManualSave = () => {
@@ -289,8 +325,32 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {obsidianStatus === 'loaded' && (
+              <span className="text-[10px] px-2 py-1 bg-accent/10 text-accent border border-accent/20 rounded-full font-semibold">
+                📓 Obsidian loaded
+              </span>
+            )}
+            {obsidianStatus === 'not-found' && (
+              <span className="text-[10px] px-2 py-1 bg-surfaceHighlight text-textMuted border border-surfaceHighlight rounded-full">
+                No Obsidian note for this day
+              </span>
+            )}
+            {obsidianStatus === 'no-path' && (
+              <span className="text-[10px] px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                Set Obsidian path in Settings
+              </span>
+            )}
+            <button
+              onClick={() => loadFromObsidian(selectedDate)}
+              disabled={obsidianStatus === 'loading'}
+              title="Load from Obsidian"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-surfaceHighlight hover:bg-gray-700 text-textMuted hover:text-text text-xs font-medium rounded-lg border border-gray-600 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={obsidianStatus === 'loading' ? 'animate-spin' : ''} />
+              {obsidianStatus === 'loading' ? 'Syncing…' : 'Sync Obsidian'}
+            </button>
             {/* Mobile report button */}
-            <button 
+            <button
               onClick={() => setShowReportModal(true)}
               className="p-2 hover:bg-primary/10 rounded-full text-primary transition-colors md:hidden"
               title="Export Report"
@@ -380,18 +440,32 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
         </div>
 
         {/* PRE-MARKET CONTEXT */}
-        {dailyAnalysis[selectedDate] && (
-           <div className="px-6 pt-6">
-             <div className="bg-accent/5 border border-accent/20 rounded-xl overflow-hidden">
-               <button onClick={() => setShowPreMarket(!showPreMarket)} className="w-full flex items-center justify-between p-3 bg-accent/10 hover:bg-accent/20 transition-colors">
-                 <div className="flex items-center gap-2 text-sm font-bold text-accent"><BrainCircuit size={16} />Pre-Market Context</div>
-                 {showPreMarket ? <ChevronUp size={16} className="text-accent"/> : <ChevronDown size={16} className="text-accent"/>}
-               </button>
-               {showPreMarket && (
-                 <div className="p-4 text-sm text-text leading-relaxed border-t border-accent/10 prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: dailyAnalysis[selectedDate] }} />
-               )}
-             </div>
-           </div>
+        {(obsidianPreMarket || dailyAnalysis[selectedDate]) && (
+          <div className="px-6 pt-6">
+            <div className="bg-accent/5 border border-accent/20 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setShowPreMarket(!showPreMarket)}
+                className="w-full flex items-center justify-between p-3 bg-accent/10 hover:bg-accent/20 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-sm font-bold text-accent">
+                  <BrainCircuit size={16} />
+                  Pre-Market Context
+                  {obsidianPreMarket && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-accent/20 rounded-full font-normal">
+                      from Obsidian
+                    </span>
+                  )}
+                </div>
+                {showPreMarket ? <ChevronUp size={16} className="text-accent"/> : <ChevronDown size={16} className="text-accent"/>}
+              </button>
+              {showPreMarket && (
+                <div
+                  className="p-4 text-sm text-text leading-relaxed border-t border-accent/10 prose prose-sm prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{ __html: obsidianPreMarket || dailyAnalysis[selectedDate] }}
+                />
+              )}
+            </div>
+          </div>
         )}
 
         {/* EDITOR AREA with SAVE BUTTON */}
