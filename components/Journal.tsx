@@ -79,6 +79,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   // Trade Form State
   const [symbol, setSymbol] = useState('');
   const [instrument, setInstrument] = useState<Instrument>(Instrument.STOCK);
+  const [optionType, setOptionType] = useState<'CALL' | 'PUT'>('CALL');
   const [type, setType] = useState<TradeType>(TradeType.LONG);
   const [entryPrice, setEntryPrice] = useState('');
   const [exitPrice, setExitPrice] = useState('');
@@ -573,7 +574,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const openAddModal = () => {
     setEditingId(null);
     setShowHistory(false);
-    setSymbol(''); setInstrument(Instrument.STOCK); setType(TradeType.LONG);
+    setSymbol(''); setInstrument(Instrument.STOCK); setOptionType('CALL'); setType(TradeType.LONG);
     setEntryPrice(''); setExitPrice(''); setStopLoss('');
     setQuantity('1'); setMultiplier('1'); setFees('');
     setNotes(''); setSetup(''); setImageUrl('');
@@ -660,6 +661,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
     setMultiplier(mult.toString());
     
     // NEW: Load enhanced fields
+    setOptionType((trade as any).optionType || 'CALL');
     setRating((trade as any).rating || 0);
     setTradeTags((trade as any).tags || []);
     setImageUrls((trade as any).imageUrls || []);
@@ -732,6 +734,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       id: editingId || Date.now().toString(),
       symbol: symbol.toUpperCase(),
       instrument,
+      ...(instrument === Instrument.OPTION && { optionType } as any),
       type,
       entryPrice: entry,
       exitPrice: exit,
@@ -1393,10 +1396,10 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                       ))}
                     </div>
                     {instrument === Instrument.FUTURE && (
-                        <select 
+                        <select
                           className="w-full mt-3 bg-surfaceHighlight/30 border border-surfaceHighlight rounded-lg px-3 py-2 text-sm text-text outline-none focus:border-primary"
                           /* FIX 1: Bind value to 'symbol' state so it remembers your selection when editing */
-                          value={symbol} 
+                          value={symbol}
                           onChange={(e) => {
                             const c = FUTURES_CONTRACTS.find(f => f.symbol === e.target.value);
                             if (c) {
@@ -1413,6 +1416,27 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                             </option>
                           ))}
                         </select>
+                    )}
+                    {instrument === Instrument.OPTION && (
+                      <div className="mt-3">
+                        <label className="text-xs text-textMuted mb-2 block">Contract Type</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setOptionType('CALL')}
+                            className={`flex-1 py-2 text-sm font-bold rounded-lg border-2 transition-all ${optionType === 'CALL' ? 'border-success bg-success/10 text-success' : 'border-surfaceHighlight text-textMuted opacity-50 hover:opacity-80'}`}
+                          >
+                            CALL ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setOptionType('PUT')}
+                            className={`flex-1 py-2 text-sm font-bold rounded-lg border-2 transition-all ${optionType === 'PUT' ? 'border-danger bg-danger/10 text-danger' : 'border-surfaceHighlight text-textMuted opacity-50 hover:opacity-80'}`}
+                          >
+                            PUT ↓
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
 

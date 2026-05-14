@@ -103,8 +103,14 @@ function detectFormat(text: string): DetectionResult {
     return { format: 'interactivebrokers', headerLineIndex: 0 };
   }
 
-  // Questrade
-  if (headers.includes('transaction date') && headers.includes('action') && headers.includes('activity type')) {
+  // Questrade — two known formats:
+  // 1. Activity export: has "transaction date", "action", "activity type"
+  // 2. eConfirmation export: has "trade date", "trade #", "description", "action"
+  if (
+    (headers.includes('transaction date') || headers.includes('trade date')) &&
+    headers.includes('action') &&
+    (headers.includes('activity type') || headers.includes('trade #'))
+  ) {
     return { format: 'questrade', headerLineIndex: 0 };
   }
 
@@ -402,52 +408,157 @@ function mapIBAssetCategory(cat: string): Instrument {
 
 // ── Questrade Parser ────────────────────────────────────────────
 
+// Parse Questrade date formats:
+//  "DD-MM-YY"  e.g. "15-12-25" → "2025-12-15"
+//  "YYYY-MM-DD" already correct
+function parseQuestradeDate(s: string): string {
+  const trimmed = s.trim();
+  // DD-MM-YY format (eConfirmation export)
+  const ddmmyy = trimmed.match(/^(\d{2})-(\d{2})-(\d{2})$/);
+  if (ddmmyy) {
+    const [, dd, mm, yy] = ddmmyy;
+    const yyyy = parseInt(yy) < 50 ? `20${yy}` : `19${yy}`;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  // YYYY-MM-DD already fine
+  return trimmed;
+}
+
+interface QTOptionInfo {
+  underlying: string;     // e.g. "BTCC"
+  optionType: 'CALL' | 'PUT';
+  expiry: string;         // YYYY-MM-DD
+  strike: number;
+  contractKey: string;    // for FIFO grouping
+}
+
+// Format an ISO expiry date into a compact readable label e.g. "2026-01-16" → "Jan16'26"
+function formatOptionExpiry(isoDate: string): string {
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [yyyy, mm, dd] = parts;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthName = months[parseInt(mm, 10) - 1] ?? mm;
+  return `${monthName}${parseInt(dd, 10)}'${yyyy.slice(2)}`;
+}
+
+// Build the display symbol for an option: e.g. "BTCC CALL 19.5 Jan16'26"
+function formatOptionSymbol(info: QTOptionInfo): string {
+  const strikeStr = info.strike % 1 === 0 ? info.strike.toString() : info.strike.toFixed(2).replace(/\.?0+$/, '');
+  return `${info.underlying} ${info.optionType} ${strikeStr} ${formatOptionExpiry(info.expiry)}`;
+}
+
+// Parse option description: "CALL .BTCC 01/02/26 19.50, PURPOSE..." or "CALL NVDA 06/18/26 230, NVIDIA..."
+function parseQTOptionDescription(description: string): QTOptionInfo | null {
+  const firstPart = description.split(',')[0].trim();
+  const tokens = firstPart.split(/\s+/);
+  if (tokens.length < 4) return null;
+
+  const optionType = tokens[0].toUpperCase();
+  if (optionType !== 'CALL' && optionType !== 'PUT') return null;
+
+  const underlying = tokens[1].replace(/^\./, '').toUpperCase(); // strip leading dot e.g. ".BTCC" → "BTCC"
+  const expiryRaw = tokens[2]; // MM/DD/YY
+  const strikeStr = tokens[3];
+  const strike = parseFloat(strikeStr);
+  if (isNaN(strike)) return null;
+
+  // Parse MM/DD/YY expiry
+  const exParts = expiryRaw.split('/');
+  if (exParts.length !== 3) return null;
+  const [exMm, exDd, exYy] = exParts;
+  const exYear = parseInt(exYy) < 50 ? `20${exYy}` : `19${exYy}`;
+  const expiry = `${exYear}-${exMm.padStart(2, '0')}-${exDd.padStart(2, '0')}`;
+
+  return {
+    underlying,
+    optionType: optionType as 'CALL' | 'PUT',
+    expiry,
+    strike,
+    contractKey: `${underlying}_${optionType}_${expiry}_${strike}`,
+  };
+}
+
 function parseQuestrade(lines: string[]): ParseResult {
   const warnings: string[] = [];
   const headers = parseLine(lines[0]).map(h => h.trim().toLowerCase());
   const trades: Trade[] = [];
 
-  interface QTRow {
-    symbol: string;
-    date: string;
+  interface QTOrderRow {
+    contractKey: string;    // unique per option contract, or symbol for stocks
+    displaySymbol: string;  // human-readable symbol shown in journal
+    date: string;           // YYYY-MM-DD
     isBuy: boolean;
     qty: number;
     price: number;
     comm: number;
+    netAmount: number;      // actual money flow (negative = paid, positive = received)
+    isOption: boolean;
     description: string;
+    optionInfo?: QTOptionInfo;
   }
 
-  const rows: QTRow[] = [];
+  const rows: QTOrderRow[] = [];
   let skippedNonTrade = 0;
 
   for (let i = 1; i < lines.length; i++) {
     const row = parseLine(lines[i]);
+    if (row.every(c => c.trim() === '')) continue;
     const getVal = makeGetVal(headers, row);
 
+    // eConfirmation format has no "activity type" — all rows are trades
     const activityType = getVal(['activity type']) || '';
-    if (activityType.toLowerCase() !== 'trades') {
+    if (activityType && activityType.toLowerCase() !== 'trades') {
       skippedNonTrade++;
       continue;
     }
 
-    const symbol = getVal(['symbol']);
-    if (!symbol) continue;
+    const action = (getVal(['action']) || '').trim().toLowerCase();
+    if (!action || (action !== 'buy' && action !== 'sell')) continue;
 
-    const dateRaw = getVal(['transaction date']) || '';
-    const action = (getVal(['action']) || '').toLowerCase();
-    const qty = parseFloat(getVal(['quantity']) || '0');
+    const dateRaw = getVal(['trade date', 'transaction date']) || '';
+    const date = parseQuestradeDate(dateRaw);
+
+    const qtyRaw = parseFloat(getVal(['quantity']) || '0');
     const price = parseFloat(getVal(['price']) || '0');
-    const comm = parseFloat(getVal(['commission']) || '0');
+    const commRaw = parseDollarPnl(getVal(['comm', 'commission']) || '');
+    const netAmountRaw = parseDollarPnl(getVal(['net amount', 'net amount (account currency)']) || '');
+
+    // Symbol: may be empty for options — use Description to extract
+    const symbolCol = (getVal(['symbol']) || '').trim().toUpperCase();
     const description = getVal(['description']) || '';
 
+    const optionInfo = parseQTOptionDescription(description);
+
+    let contractKey: string;
+    let displaySymbol: string;
+    let isOption = false;
+
+    if (optionInfo) {
+      contractKey = optionInfo.contractKey;
+      displaySymbol = formatOptionSymbol(optionInfo); // e.g. "BTCC CALL 19.5 Jan16'26"
+      isOption = true;
+    } else if (symbolCol) {
+      contractKey = symbolCol;
+      displaySymbol = symbolCol;
+    } else {
+      // Can't identify — skip
+      warnings.push(`Row ${i + 1} skipped: could not determine symbol from "${description}"`);
+      continue;
+    }
+
     rows.push({
-      symbol: symbol.toUpperCase(),
-      date: dateRaw, // already YYYY-MM-DD
+      contractKey,
+      displaySymbol,
+      date,
       isBuy: action === 'buy',
-      qty: Math.abs(qty),
+      qty: Math.abs(qtyRaw),
       price,
-      comm: Math.abs(comm),
+      comm: Math.abs(commRaw),
+      netAmount: netAmountRaw,
+      isOption,
       description,
+      optionInfo,
     });
   }
 
@@ -455,31 +566,98 @@ function parseQuestrade(lines: string[]): ParseResult {
     warnings.push(`${skippedNonTrade} non-trade rows skipped (dividends, deposits, etc.)`);
   }
 
-  // FIFO pair orders by symbol
-  const paired = fifoMatchOrders(
-    rows.map(r => ({
-      symbol: r.symbol,
-      date: r.date,
-      time: '',
-      qty: r.qty,
-      price: r.price,
-      comm: r.comm,
-      isBuy: r.isBuy,
-      assetCat: detectQuestradeInstrument(r.description),
-    })),
-    'qt',
-    warnings
-  );
+  // FIFO pair by contractKey
+  const byContract = new Map<string, QTOrderRow[]>();
+  for (const r of rows) {
+    const group = byContract.get(r.contractKey) || [];
+    group.push(r);
+    byContract.set(r.contractKey, group);
+  }
 
-  trades.push(...paired);
+  for (const [contractKey, orders] of byContract) {
+    // Sort by date
+    orders.sort((a, b) => a.date.localeCompare(b.date));
+
+    const openQueue: QTOrderRow[] = [];
+
+    for (const order of orders) {
+      if (openQueue.length === 0 || openQueue[0].isBuy === order.isBuy) {
+        openQueue.push(order);
+        continue;
+      }
+
+      // Opposite side — FIFO match
+      const opener = openQueue.shift()!;
+      const isLong = opener.isBuy;
+      const qty = Math.min(opener.qty, order.qty);
+      const totalFees = opener.comm + order.comm;
+
+      // PnL from net amounts — most accurate as it accounts for option multiplier
+      // opener.netAmount is negative (paid), order.netAmount is positive (received) for a short
+      // For a long: opener is negative, order is positive
+      const pnl = parseFloat((opener.netAmount + order.netAmount).toFixed(2));
+
+      const instrument = opener.isOption ? Instrument.OPTION : Instrument.STOCK;
+      const optType = opener.isOption ? opener.optionInfo?.optionType : undefined;
+
+      trades.push({
+        id: generateTradeId('qt', opener.date, contractKey, opener.price, order.price),
+        date: opener.date,
+        symbol: opener.displaySymbol,
+        instrument,
+        optionType: optType,
+        type: isLong ? TradeType.LONG : TradeType.SHORT,
+        status: TradeStatus.CLOSED,
+        entryPrice: opener.price,
+        exitPrice: order.price,
+        quantity: qty,
+        pnl,
+        fees: totalFees,
+        entryTime: undefined,
+        exitTime: undefined,
+        emotionPre: Emotion.NEUTRAL,
+        notes: '',
+        setup: '',
+        tags: ['questrade'],
+      });
+
+      // Handle partial fills
+      const remainOpener = opener.qty - qty;
+      const remainCloser = order.qty - qty;
+      if (remainOpener > 0) {
+        openQueue.unshift({ ...opener, qty: remainOpener, comm: 0, netAmount: 0 });
+      }
+      if (remainCloser > 0) {
+        openQueue.push({ ...order, qty: remainCloser, comm: 0, netAmount: 0 });
+      }
+    }
+
+    // Unmatched rows → OPEN trades
+    for (const orphan of openQueue) {
+      const instrument = orphan.isOption ? Instrument.OPTION : Instrument.STOCK;
+      const optType = orphan.isOption ? orphan.optionInfo?.optionType : undefined;
+
+      trades.push({
+        id: generateTradeId('qt', orphan.date, contractKey, orphan.price, 'open'),
+        date: orphan.date,
+        symbol: orphan.displaySymbol,
+        instrument,
+        optionType: optType,
+        type: orphan.isBuy ? TradeType.LONG : TradeType.SHORT,
+        status: TradeStatus.OPEN,
+        entryPrice: orphan.price,
+        quantity: orphan.qty,
+        fees: orphan.comm,
+        emotionPre: Emotion.NEUTRAL,
+        notes: '',
+        setup: '',
+        tags: ['questrade'],
+      });
+      warnings.push(`${orphan.displaySymbol}: unmatched ${orphan.isBuy ? 'buy' : 'sell'} (${orphan.qty} on ${orphan.date}) — imported as OPEN`);
+    }
+  }
 
   return { format: 'questrade', formatLabel: 'Questrade', trades, warnings };
-}
-
-function detectQuestradeInstrument(description: string): string {
-  const upper = description.toUpperCase();
-  if (upper.includes('CALL') || upper.includes('PUT')) return 'option';
-  return 'stock';
 }
 
 // ── FIFO Order Matching (shared by IB orders & Questrade) ───────

@@ -453,8 +453,10 @@ app.delete('/notes/:id', (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // ── Helper: call Ollama chat endpoint ───────────────────────────
-async function callOllama(messages, maxTokens = 2000) {
-  console.log(`[ollama] → ${OLLAMA_MODEL} | messages: ${messages.length} | maxTokens: ${maxTokens}`);
+async function callOllama(messages, maxTokens = 2000, opts = {}) {
+  const temp = opts.temperature ?? 0.7;
+  const topP = opts.top_p ?? 0.9;
+  console.log(`[ollama] → ${OLLAMA_MODEL} | messages: ${messages.length} | maxTokens: ${maxTokens} | temp: ${temp}`);
 
   const res = await fetch(OLLAMA_URL, {
     method: 'POST',
@@ -464,8 +466,8 @@ async function callOllama(messages, maxTokens = 2000) {
       stream: false,
       options: {
         num_predict: maxTokens,
-        temperature: 0.7,
-        top_p: 0.9,
+        temperature: temp,
+        top_p: topP,
       },
       messages,
     }),
@@ -697,36 +699,93 @@ app.post('/ai/chat', async (req, res) => {
   }
 });
 
+// ── Question classifier — determines token budget & context depth ──
+function classifyQuestion(message) {
+  const m = message.toLowerCase();
+  const tier3 = /why|how can|what should|improve|weakness|strength|advice|tip|pattern|emotion|psycholog|help me|analyz|review|suggest|recommend|biggest|worst habit|best habit|what am i doing wrong|journal|reflect/;
+  const tier2 = /compare|breakdown|by day|by week|by month|by symbol|by setup|performance|rank|top \d|bottom \d|versus|\bvs\b|difference|trend|over time|history|show me/;
+  if (tier3.test(m)) return 'deep';
+  if (tier2.test(m)) return 'comparative';
+  return 'factual';
+}
+
+const TIER_CONFIG = {
+  factual: {
+    maxTokens: 150,
+    includeContext: false,
+    instruction: 'Answer in 1-2 sentences. Give only the number or fact asked. No headers, no bullet points, no extra commentary.',
+  },
+  comparative: {
+    maxTokens: 600,
+    includeContext: false,
+    instruction: 'Give a concise structured breakdown. Use bullet points or a short table. No lengthy narrative. Stay focused on the comparison requested.',
+  },
+  deep: {
+    maxTokens: 2000,
+    includeContext: true,
+    instruction: [
+      'Give a detailed analysis using this framework:',
+      '1. What the data shows — cite specific numbers',
+      '2. Patterns — correlations between emotions, setups, day of week',
+      '3. Edge vs. leak — what\'s working vs. what\'s costing money',
+      '4. Actionable next step — one concrete thing to do differently',
+      'Use ## headers and **bold** for key numbers.',
+    ].join(' '),
+  },
+};
+
 // ── POST /ai/qa — Data-aware Q&A chat ──────────────────────────
 app.post('/ai/qa', async (req, res) => {
   try {
     const { message, history = [] } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
-    // Fetch ALL trades for stats (from inception), 30 days for narrative context
-    const allData  = fetchFullContext(99999); // all data
-    const recent   = fetchFullContext(30);    // last 30 days for journal context
-    const context  = buildContextString({ trades: recent.trades, journal: recent.journal, notes: recent.notes }, 30);
-    const stats    = buildQAStatsString(allData.trades, allData.notes);
+    // Classify the question to pick the right token budget & context depth
+    const tier = classifyQuestion(message);
+    const cfg  = TIER_CONFIG[tier];
 
-    const systemPrompt = `You are a trading data assistant for a day trader. Answer questions using the statistics and journal data provided. Be precise with numbers — use the pre-computed stats when available. Format currency as $X.XX. If the data doesn't contain the answer, say so. Keep answers concise but complete. When the user asks about a specific month (e.g. "May"), use the monthly breakdown provided. When asked about a specific week or date range, use the daily trade history to compute the answer.`;
+    // Fetch ALL trades for stats (from inception)
+    const allData = fetchFullContext(99999);
+    const stats   = buildQAStatsString(allData.trades, allData.notes);
+
+    // Only include narrative journal context for deep/analytical questions
+    let contextBlock = '';
+    if (cfg.includeContext) {
+      const recent  = fetchFullContext(30);
+      const context = buildContextString({ trades: recent.trades, journal: recent.journal, notes: recent.notes }, 30);
+      if (context.trim()) {
+        contextBlock = `\n=== JOURNAL CONTEXT (last 30 days) ===\n${context.substring(0, 5000)}`;
+      }
+    }
+
+    // Short system prompt — Gemma's chat template breaks with long system prompts,
+    // producing empty responses. Full instructions go into the user turn instead.
+    const systemPrompt = `You are an expert trading analyst. Use the trader's actual data to answer. Be precise with numbers.`;
 
     const userContent = [
-      stats ? `=== PRE-COMPUTED STATISTICS (ALL TIME) ===\n${stats}` : '',
-      context.trim() ? `\n=== JOURNAL CONTEXT (last 30 days) ===\n${context.substring(0, 6000)}` : '',
-      `\nQuestion: ${message}`,
+      `=== INSTRUCTIONS ===`,
+      `- ${cfg.instruction}`,
+      `- Be precise with numbers — use the pre-computed stats below, never estimate.`,
+      `- Format currency as $X.XX. Format percentages to 1 decimal.`,
+      `- When asked about a specific month, use PER-MONTH BREAKDOWN.`,
+      `- If the data doesn't contain the answer, say so.`,
+      `- Never give generic advice — only insights backed by the trader's own data.`,
+      stats ? `\n=== PRE-COMPUTED STATISTICS (ALL TIME) ===\n${stats}` : '',
+      contextBlock,
+      `\n=== QUESTION ===\n${message}`,
     ].filter(Boolean).join('\n');
 
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-8).map(h => ({
+      ...history.slice(-10).map(h => ({
         role:    h.role === 'ai' ? 'assistant' : 'user',
         content: h.text,
       })),
       { role: 'user', content: userContent },
     ];
 
-    const reply = await callOllama(messages, 800);
+    console.log(`[/ai/qa] tier=${tier} maxTokens=${cfg.maxTokens} includeContext=${cfg.includeContext}`);
+    const reply = await callOllama(messages, cfg.maxTokens, { temperature: 0.5, top_p: 0.85 });
     res.json({ reply });
   } catch (err) {
     console.error('[/ai/qa] error:', err.message);
@@ -763,7 +822,7 @@ function buildQAStatsString(trades, notes) {
   s += `Profit factor: ${pf}\n`;
   s += `Total fees: $${totalFees.toFixed(2)}\n`;
 
-  // Per-symbol breakdown
+  // Per-symbol breakdown (top 10 by trade count)
   const bySymbol = {};
   closed.forEach(t => {
     if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { trades: 0, pnl: 0, wins: 0 };
@@ -771,12 +830,13 @@ function buildQAStatsString(trades, notes) {
     bySymbol[t.symbol].pnl += t.pnl;
     if (t.pnl > 0) bySymbol[t.symbol].wins++;
   });
-  s += `\nPER-SYMBOL:\n`;
-  Object.entries(bySymbol).sort((a, b) => b[1].pnl - a[1].pnl).forEach(([sym, d]) => {
+  const topSymbols = Object.entries(bySymbol).sort((a, b) => b[1].trades - a[1].trades).slice(0, 10);
+  s += `\nPER-SYMBOL (top ${topSymbols.length} by volume, ${Object.keys(bySymbol).length} total):\n`;
+  topSymbols.forEach(([sym, d]) => {
     s += `  ${sym}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}, WR ${((d.wins/d.trades)*100).toFixed(0)}%\n`;
   });
 
-  // Per-setup breakdown
+  // Per-setup breakdown (top 10 by trade count, min 2 trades)
   const bySetup = {};
   closed.filter(t => t.setup).forEach(t => {
     if (!bySetup[t.setup]) bySetup[t.setup] = { trades: 0, pnl: 0, wins: 0 };
@@ -784,11 +844,18 @@ function buildQAStatsString(trades, notes) {
     bySetup[t.setup].pnl += t.pnl;
     if (t.pnl > 0) bySetup[t.setup].wins++;
   });
-  if (Object.keys(bySetup).length) {
-    s += `\nPER-SETUP:\n`;
-    Object.entries(bySetup).sort((a, b) => b[1].pnl - a[1].pnl).forEach(([setup, d]) => {
+  const topSetups = Object.entries(bySetup).filter(([, d]) => d.trades >= 2).sort((a, b) => b[1].trades - a[1].trades).slice(0, 10);
+  if (topSetups.length) {
+    s += `\nPER-SETUP (top ${topSetups.length} by volume, ${Object.keys(bySetup).length} total, min 2 trades):\n`;
+    topSetups.forEach(([setup, d]) => {
       s += `  ${setup}: ${d.trades} trades, P&L $${d.pnl.toFixed(2)}, WR ${((d.wins/d.trades)*100).toFixed(0)}%\n`;
     });
+    // Best/worst setup by P&L (min 2 trades)
+    const allSetups = Object.entries(bySetup).filter(([, d]) => d.trades >= 2).sort((a, b) => b[1].pnl - a[1].pnl);
+    if (allSetups.length >= 2) {
+      s += `  BEST setup: ${allSetups[0][0]} ($${allSetups[0][1].pnl.toFixed(2)})\n`;
+      s += `  WORST setup: ${allSetups[allSetups.length-1][0]} ($${allSetups[allSetups.length-1][1].pnl.toFixed(2)})\n`;
+    }
   }
 
   // Per-day-of-week
@@ -900,6 +967,47 @@ function buildQAStatsString(trades, notes) {
     s += `\nDATA RANGE: ${dates[0]} to ${dates[dates.length - 1]} (${dates.length} closed trades total)\n`;
   }
 
+  // Per-account breakdown
+  const accounts = db.prepare('SELECT * FROM accounts').all();
+  if (accounts.length > 1) {
+    s += `\nPER-ACCOUNT:\n`;
+    accounts.forEach(acct => {
+      const acctTrades = closed.filter(t => t.accountId === acct.id);
+      if (acctTrades.length) {
+        const acctPnl = acctTrades.reduce((sum, t) => sum + t.pnl, 0);
+        const acctWins = acctTrades.filter(t => t.pnl > 0).length;
+        s += `  ${acct.name}: ${acctTrades.length} trades, P&L $${acctPnl.toFixed(2)}, WR ${((acctWins/acctTrades.length)*100).toFixed(0)}%\n`;
+      }
+    });
+  }
+
+  // Win/loss streak
+  const sortedByDate = [...closed].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.entryTime || '').localeCompare(b.entryTime || '');
+  });
+  if (sortedByDate.length >= 2) {
+    let currentStreak = 0;
+    const lastResult = sortedByDate[sortedByDate.length - 1].pnl > 0 ? 'win' : 'loss';
+    for (let i = sortedByDate.length - 1; i >= 0; i--) {
+      const isWin = sortedByDate[i].pnl > 0;
+      if ((lastResult === 'win' && isWin) || (lastResult === 'loss' && !isWin)) {
+        currentStreak++;
+      } else break;
+    }
+    s += `\nCURRENT STREAK: ${currentStreak} ${lastResult}${currentStreak > 1 ? 's' : ''} in a row\n`;
+
+    // Max drawdown from equity curve
+    let peak = 0, cumPnl = 0, maxDD = 0;
+    sortedByDate.forEach(t => {
+      cumPnl += t.pnl;
+      if (cumPnl > peak) peak = cumPnl;
+      const dd = peak - cumPnl;
+      if (dd > maxDD) maxDD = dd;
+    });
+    s += `MAX DRAWDOWN: $${maxDD.toFixed(2)}\n`;
+  }
+
   // Rule compliance
   const ruleRows = db.prepare('SELECT * FROM rules WHERE active = 1').all();
   if (ruleRows.length) {
@@ -909,6 +1017,8 @@ function buildQAStatsString(trades, notes) {
     if (totalChecks) {
       s += `\nRULE COMPLIANCE: ${((followed/totalChecks)*100).toFixed(0)}% (${followed}/${totalChecks} checks followed)\n`;
     }
+    s += `ACTIVE RULES:\n`;
+    ruleRows.forEach(r => { s += `  • ${r.text}\n`; });
   }
 
   return s;

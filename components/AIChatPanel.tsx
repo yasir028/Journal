@@ -99,7 +99,7 @@ const AIChatPanel: React.FC = () => {
 
   return (
     <div className="fixed bottom-6 right-6 z-40 w-[400px] max-w-[calc(100vw-2rem)] flex flex-col bg-surface border border-surfaceHighlight rounded-2xl shadow-2xl overflow-hidden"
-         style={{ height: '520px' }}>
+         style={{ height: 'calc(100vh - 3rem)', maxHeight: '780px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-surfaceHighlight bg-surfaceHighlight/30">
         <div className="flex items-center gap-2">

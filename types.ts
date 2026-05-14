@@ -89,6 +89,7 @@ export interface Trade {
   tags?: string[];
   imageUrls?: string[];
   audioUrl?: string;
+  optionType?: 'CALL' | 'PUT'; // For options: whether it's a call or put contract
 }
 
 // New Types for Notebook
