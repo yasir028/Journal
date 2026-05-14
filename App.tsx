@@ -14,7 +14,7 @@ import ToastContainer, { ToastMessage, ToastType } from './components/Toast';
 import MindfulLogo from './components/MindfulLogo';
 import TradingIntelligence from './components/TradingIntelligence';
 import AIChatPanel from './components/AIChatPanel';
-import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile, PsychProfilePeriod, DeepAnalysis, DeepAnalysisPeriod } from './types';
+import { Trade, Account, DailyAnalysis, DailyReview, Playbook, DEFAULT_PLAYBOOKS, CheckInSettings, Note, Rule, RuleCheck, RuleSettings, AIRecap, RecapPeriodType, PsychProfile, PsychProfilePeriod, DeepAnalysis, DeepAnalysisPeriod, TradeStatus, Instrument, Emotion } from './types';
 
 // ─── API CONFIGURATION ────────────────────────────────────────
 // Vite proxies /api → http://localhost:3001 (see vite.config.ts)
@@ -300,26 +300,46 @@ const App: React.FC = () => {
   // --- IMPORT TRADES ---
   const handleImportTrades = async (importedTrades: Trade[]) => {
     if (importedTrades.length === 0) return;
-    
+
     addToast(`Starting import of ${importedTrades.length} trades...`, 'info');
     let count = 0;
+    const idMap = new Map<string, string>(); // parserId → savedId
+    const savedList: Trade[] = [];
 
     for (const trade of importedTrades) {
       try {
-        const tradeToSave = { 
-            ...trade, 
-            id: Date.now().toString() + Math.random().toString().slice(2, 5), 
-            accountId: activeAccountId 
-        };
-
+        const newId = Date.now().toString() + Math.random().toString().slice(2, 5);
+        idMap.set(trade.id, newId);
+        const tradeToSave = { ...trade, id: newId, accountId: activeAccountId };
         await fetch(`${API_URL}/trades`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(tradeToSave)
         });
+        savedList.push(tradeToSave as Trade);
         count++;
       } catch (err) {
         console.error("Failed to import specific trade:", trade);
+      }
+    }
+
+    // Second pass: remap roll chain IDs to the newly assigned IDs
+    const rollTrades = savedList.filter(t => (t as any).rollPrevId || (t as any).rollNextId);
+    for (const t of rollTrades) {
+      const updated = {
+        ...t,
+        rollPrevId: idMap.get((t as any).rollPrevId) ?? (t as any).rollPrevId ?? null,
+        rollNextId: idMap.get((t as any).rollNextId) ?? (t as any).rollNextId ?? null,
+        rollSeriesId: (t as any).rollSeriesId ?? null,
+      };
+      try {
+        await fetch(`${API_URL}/trades/${t.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated)
+        });
+      } catch (err) {
+        console.error("Failed to remap roll chain for trade:", t.id);
       }
     }
 
@@ -327,6 +347,70 @@ const App: React.FC = () => {
     const data = await res.json();
     setTrades(data);
     addToast(`Successfully imported ${count} trades!`);
+  };
+
+  // --- ROLL OPTION TRADE ---
+  const handleRollTrade = async (oldTrade: Trade, rollData: {
+    rollCredit: number;
+    newSymbol: string;
+    newOptionType: 'CALL' | 'PUT';
+    newEntryPrice: number;
+    newQuantity: number;
+    rollDate: string;
+    notes?: string;
+  }) => {
+    const seriesId = (oldTrade as any).rollSeriesId ?? `series-${Date.now()}`;
+    const newTradeId = `roll-${Date.now()}`;
+    const creditStr = `${rollData.rollCredit >= 0 ? '+' : ''}${rollData.rollCredit.toFixed(2)}`;
+
+    const updatedOld = {
+      ...oldTrade,
+      status: TradeStatus.ROLLED,
+      rollCredit: rollData.rollCredit,
+      rollSeriesId: seriesId,
+      rollNextId: newTradeId,
+      notes: [oldTrade.notes, `Rolled ${rollData.rollDate} | credit: ${creditStr}`, rollData.notes]
+        .filter(Boolean).join('\n'),
+    };
+
+    const newTrade: Partial<Trade> = {
+      id: newTradeId,
+      accountId: activeAccountId,
+      symbol: rollData.newSymbol,
+      instrument: Instrument.OPTION,
+      optionType: rollData.newOptionType,
+      type: oldTrade.type,
+      entryPrice: rollData.newEntryPrice,
+      quantity: rollData.newQuantity,
+      status: TradeStatus.OPEN,
+      date: rollData.rollDate,
+      setup: oldTrade.setup,
+      playbookId: oldTrade.playbookId,
+      emotionPre: Emotion.NEUTRAL,
+      notes: rollData.notes ?? '',
+      rollSeriesId: seriesId,
+      rollPrevId: oldTrade.id,
+      tags: [...((oldTrade as any).tags ?? []), 'roll'],
+      fees: 0,
+    };
+
+    try {
+      await fetch(`${API_URL}/trades/${oldTrade.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedOld),
+      });
+      await fetch(`${API_URL}/trades`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTrade),
+      });
+      setTrades(prev => [newTrade as Trade, ...prev.map(t => t.id === oldTrade.id ? updatedOld as Trade : t)]);
+      addToast(`Rolled ${oldTrade.symbol} → ${rollData.newSymbol} | credit: $${creditStr}`);
+    } catch (err) {
+      addToast('Roll save failed.', 'error');
+      console.error('handleRollTrade error:', err);
+    }
   };
 
   // --- BATCH IMPORT (Tradovate) ---
@@ -762,7 +846,7 @@ const App: React.FC = () => {
 
          {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={handleSaveDailyReview} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={(id) => { setFocusedTradeId(id); setView('journal'); }} />}
          
-         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} />}
+         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} onRollTrade={handleRollTrade} />}
          
          {view === 'calendar' && (
            <PnLCalendar

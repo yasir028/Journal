@@ -168,6 +168,10 @@ db.exec(`
 // ── MIGRATION: add rating column to trades if it doesn't exist ───
 try { db.exec('ALTER TABLE trades ADD COLUMN rating INTEGER DEFAULT 0'); } catch {}
 
+// ── MIGRATIONS: optionType + roll chain + exitDate columns ───────
+['optionType TEXT', 'rollSeriesId TEXT', 'rollPrevId TEXT', 'rollNextId TEXT', 'rollCredit REAL', 'exitDate TEXT']
+  .forEach(col => { try { db.exec(`ALTER TABLE trades ADD COLUMN ${col}`); } catch {} });
+
 // Seed default account if empty
 const accountCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get();
 if (accountCount.c === 0) {
@@ -239,8 +243,14 @@ function tradeToRow(t) {
     imageUrls:  stringifyJ(t.imageUrls),
     tags:       stringifyJ(t.tags),
     exits:      stringifyJ(t.exits),
-    rating:     t.rating      ?? 0,
-    updated_at: new Date().toISOString(),
+    rating:       t.rating       ?? 0,
+    exitDate:     t.exitDate     ?? null,
+    optionType:   t.optionType   ?? null,
+    rollSeriesId: t.rollSeriesId ?? null,
+    rollPrevId:   t.rollPrevId   ?? null,
+    rollNextId:   t.rollNextId   ?? null,
+    rollCredit:   t.rollCredit   ?? null,
+    updated_at:   new Date().toISOString(),
   };
 }
 
@@ -295,12 +305,14 @@ app.post('/trades', (req, res) => {
       id, accountId, symbol, instrument, type, entryPrice, exitPrice,
       stopLoss, quantity, status, pnl, fees, r, date, entryTime, exitTime,
       setup, playbookId, notes, emotionPre, emotionPost, mistakes,
-      imageUrl, imageUrls, audioUrl, tags, exits, rating
+      imageUrl, imageUrls, audioUrl, tags, exits, rating,
+      optionType, rollSeriesId, rollPrevId, rollNextId, rollCredit, exitDate
     ) VALUES (
       @id, @accountId, @symbol, @instrument, @type, @entryPrice, @exitPrice,
       @stopLoss, @quantity, @status, @pnl, @fees, @r, @date, @entryTime, @exitTime,
       @setup, @playbookId, @notes, @emotionPre, @emotionPost, @mistakes,
-      @imageUrl, @imageUrls, @audioUrl, @tags, @exits, @rating
+      @imageUrl, @imageUrls, @audioUrl, @tags, @exits, @rating,
+      @optionType, @rollSeriesId, @rollPrevId, @rollNextId, @rollCredit, @exitDate
     )
   `).run(t);
   res.json(rowToTrade(db.prepare('SELECT * FROM trades WHERE id = ?').get(t.id)));
@@ -317,7 +329,11 @@ app.put('/trades/:id', (req, res) => {
       playbookId = @playbookId, notes = @notes, emotionPre = @emotionPre,
       emotionPost = @emotionPost, mistakes = @mistakes, imageUrl = @imageUrl,
       imageUrls = @imageUrls, audioUrl = @audioUrl, tags = @tags,
-      exits = @exits, rating = @rating, updated_at = @updated_at
+      exits = @exits, rating = @rating,
+      optionType = @optionType, rollSeriesId = @rollSeriesId,
+      rollPrevId = @rollPrevId, rollNextId = @rollNextId, rollCredit = @rollCredit,
+      exitDate = @exitDate,
+      updated_at = @updated_at
     WHERE id = @id
   `).run({ ...t, id: req.params.id });
   res.json(rowToTrade(db.prepare('SELECT * FROM trades WHERE id = ?').get(req.params.id)));
@@ -342,12 +358,14 @@ app.post('/trades/batch', (req, res) => {
       id, accountId, symbol, instrument, type, entryPrice, exitPrice,
       stopLoss, quantity, status, pnl, fees, r, date, entryTime, exitTime,
       setup, playbookId, notes, emotionPre, emotionPost, mistakes,
-      imageUrl, imageUrls, audioUrl, tags, exits, rating
+      imageUrl, imageUrls, audioUrl, tags, exits, rating,
+      optionType, rollSeriesId, rollPrevId, rollNextId, rollCredit, exitDate
     ) VALUES (
       @id, @accountId, @symbol, @instrument, @type, @entryPrice, @exitPrice,
       @stopLoss, @quantity, @status, @pnl, @fees, @r, @date, @entryTime, @exitTime,
       @setup, @playbookId, @notes, @emotionPre, @emotionPost, @mistakes,
-      @imageUrl, @imageUrls, @audioUrl, @tags, @exits, @rating
+      @imageUrl, @imageUrls, @audioUrl, @tags, @exits, @rating,
+      @optionType, @rollSeriesId, @rollPrevId, @rollNextId, @rollCredit, @exitDate
     )
   `);
 

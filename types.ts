@@ -6,9 +6,10 @@ export enum TradeType {
 }
 
 export enum TradeStatus {
-  OPEN = 'OPEN',
+  OPEN   = 'OPEN',
   CLOSED = 'CLOSED',
-  BE = 'BE' // Break Even
+  BE     = 'BE',     // Break Even
+  ROLLED = 'ROLLED', // Option rolled to a new expiry; not a loss
 }
 
 export enum Instrument {
@@ -90,6 +91,12 @@ export interface Trade {
   imageUrls?: string[];
   audioUrl?: string;
   optionType?: 'CALL' | 'PUT'; // For options: whether it's a call or put contract
+  exitDate?: string;      // YYYY-MM-DD — date the trade was closed (may differ from entry date)
+  // Roll chain fields
+  rollSeriesId?: string;  // Stable UUID shared by all legs in a roll chain
+  rollPrevId?:   string;  // ID of the trade this was rolled FROM
+  rollNextId?:   string;  // ID of the trade this was rolled INTO
+  rollCredit?:   number;  // Net cash received when closing this leg for the roll (+ = credit, - = debit)
 }
 
 // New Types for Notebook

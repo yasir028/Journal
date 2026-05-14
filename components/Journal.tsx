@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Trade, TradeType, TradeStatus, Emotion, DailyAnalysis, TradeHistoryItem, Playbook, DEFAULT_MISTAKES, Instrument, FUTURES_CONTRACTS, TradeExit } from '../types';
-import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download, Star, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download, Star, Calendar as CalendarIcon, RefreshCw, Link2 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import TradeDetail from './TradeDetail';
+import RollModal, { RollFormData } from './RollModal';
 
 interface JournalProps {
   trades: Trade[];
@@ -23,9 +24,10 @@ interface JournalProps {
   };
   autoOpenAddTrade?: boolean;
   onAddTradeOpened?: () => void;
+  onRollTrade?: (trade: Trade, data: RollFormData) => void;
 }
 
-const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened }) => {
+const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened, onRollTrade }) => {
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd]   = useState('');
@@ -39,6 +41,9 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
 
   // Trade Detail Modal (Feature 9)
   const [detailTradeId, setDetailTradeId] = useState<string | null>(null);
+
+  // Roll Modal
+  const [rollTradeId, setRollTradeId] = useState<string | null>(null);
 
   // Day View (Feature 12)
   const [viewMode, setViewMode] = useState<'trade' | 'day'>('trade');
@@ -89,6 +94,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
   const [fees, setFees] = useState(''); // NEW: Commission/Fees State
   const [entryTime, setEntryTime] = useState('');
   const [exitTime, setExitTime] = useState('');
+  const [exitDate, setExitDate] = useState('');
   const [setup, setSetup] = useState('');
   
   // Custom Input States
@@ -578,7 +584,7 @@ const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis
     setEntryPrice(''); setExitPrice(''); setStopLoss('');
     setQuantity('1'); setMultiplier('1'); setFees('');
     setNotes(''); setSetup(''); setImageUrl('');
-    setEntryTime(''); setExitTime(''); 
+    setEntryTime(''); setExitTime(''); setExitDate('');
     setEmotion(Emotion.NEUTRAL); setIsCustomEmotion(false); setCustomEmotion('');
     setPlaybookId(''); setIsAddingPlaybook(false); setNewPlaybookName('');
     setSelectedMistakes([]); setCustomMistake('');
@@ -603,6 +609,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
     setFees(trade.fees?.toString() || ''); 
     setEntryTime(trade.entryTime || '');
     setExitTime(trade.exitTime || '');
+    setExitDate((trade as any).exitDate || '');
     setSetup(trade.setup);
     setNotes(trade.notes);
     
@@ -747,6 +754,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       date,
       entryTime: entryTime || undefined,
       exitTime: exitTime || undefined,
+      exitDate: exitDate || undefined,
       setup,
       playbookId: finalPlaybookId || undefined,
       mistakes: selectedMistakes.length > 0 ? selectedMistakes : undefined,
@@ -981,11 +989,16 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                                 <td className={`px-3 py-2 text-right font-mono font-medium ${w ? 'text-success' : l ? 'text-danger' : 'text-textMuted'}`}>{t.pnl ? `${w ? '+' : ''}${t.pnl.toFixed(2)}` : '-'}</td>
                                 <td className="px-3 py-2 text-center">
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
-                                    t.status === TradeStatus.OPEN ? 'bg-blue-500/10 text-blue-400' :
+                                    t.status === TradeStatus.OPEN   ? 'bg-blue-500/10 text-blue-400' :
+                                    t.status === TradeStatus.ROLLED ? 'bg-amber-500/10 text-amber-400' :
                                     w ? 'bg-emerald-500 text-white' :
                                     l ? 'bg-red-500 text-white' :
                                     'bg-gray-500 text-white'
-                                  }`}>{t.status === TradeStatus.CLOSED ? (w ? 'WIN' : l ? 'LOSS' : 'BE') : 'OPEN'}</span>
+                                  }`}>{
+                                    t.status === TradeStatus.ROLLED ? 'ROLLED' :
+                                    t.status === TradeStatus.CLOSED ? (w ? 'WIN' : l ? 'LOSS' : 'BE') :
+                                    'OPEN'
+                                  }</span>
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <div className="flex items-center justify-center gap-1">
@@ -1051,9 +1064,14 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                     <td className={`${isCompact ? 'px-3 py-2 text-xs' : 'px-4 py-4 text-textMuted'}`}>{trade.date}</td>
                     
                     <td className={`${isCompact ? 'px-3 py-2 font-bold' : 'px-4 py-4 font-bold'}`}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={trade.instrument === Instrument.CRYPTO ? "text-accent" : "text-text"}>{trade.symbol}</span>
                         {trade.instrument && trade.instrument !== Instrument.STOCK && <span className="px-1.5 py-0.5 bg-surfaceHighlight rounded text-[10px] text-textMuted font-normal">{trade.instrument}</span>}
+                        {(trade as any).rollSeriesId && (
+                          <span title="Part of a roll series" className="text-amber-400 opacity-70 hover:opacity-100 cursor-default">
+                            <Link2 size={11} className="inline" />
+                          </span>
+                        )}
                       </div>
                     </td>
                     
@@ -1068,18 +1086,27 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted`}>{trade.entryPrice}</td>
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted`}>{trade.exitPrice || '-'}</td>
                     
-                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-mono font-medium ${trade.status === TradeStatus.OPEN ? 'text-textMuted' : isWin ? 'text-success' : 'text-danger'}`}>
-                      {trade.status === TradeStatus.OPEN ? 'Open' : (trade.pnl ? (isWin ? '+' : '') + trade.pnl.toFixed(2) : '-')}
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-mono font-medium ${
+                      trade.status === TradeStatus.OPEN   ? 'text-textMuted' :
+                      trade.status === TradeStatus.ROLLED ? 'text-amber-400' :
+                      isWin ? 'text-success' : 'text-danger'
+                    }`}>
+                      {trade.status === TradeStatus.OPEN   ? 'Open' :
+                       trade.status === TradeStatus.ROLLED ? ((trade as any).rollCredit != null ? `${(trade as any).rollCredit >= 0 ? '+' : ''}${(trade as any).rollCredit.toFixed(2)}` : '-') :
+                       (trade.pnl ? (isWin ? '+' : '') + trade.pnl.toFixed(2) : '-')}
                     </td>
                     
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-center`}>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase ${
-                        trade.status === TradeStatus.OPEN ? 'bg-blue-500/10 text-blue-400' :
-                        isWin ? 'bg-emerald-500 text-white' :
-                        isLoss ? 'bg-red-500 text-white' :
+                        trade.status === TradeStatus.OPEN   ? 'bg-blue-500/10 text-blue-400' :
+                        trade.status === TradeStatus.ROLLED ? 'bg-amber-500/10 text-amber-400' :
+                        isWin   ? 'bg-emerald-500 text-white' :
+                        isLoss  ? 'bg-red-500 text-white' :
                         'bg-gray-500 text-white'
                       }`}>
-                        {trade.status === TradeStatus.CLOSED ? (isWin ? 'WIN' : isLoss ? 'LOSS' : 'BE') : 'OPEN'}
+                        {trade.status === TradeStatus.ROLLED ? 'ROLLED' :
+                         trade.status === TradeStatus.CLOSED ? (isWin ? 'WIN' : isLoss ? 'LOSS' : 'BE') :
+                         'OPEN'}
                       </span>
                     </td>
                     
@@ -1091,6 +1118,15 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                         <button onClick={(e) => { e.stopPropagation(); openEditModal(trade); }} className="p-1.5 hover:bg-surfaceHighlight rounded text-textMuted hover:text-accent transition-colors" title="Edit">
                            <Pencil size={16} />
                         </button>
+                        {trade.instrument === Instrument.OPTION && trade.status === TradeStatus.OPEN && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRollTradeId(trade.id); }}
+                            className="p-1.5 hover:bg-surfaceHighlight rounded text-amber-400 hover:text-amber-300 transition-colors"
+                            title="Roll this option to a new expiry"
+                          >
+                            <RefreshCw size={16} />
+                          </button>
+                        )}
                         <button onClick={(e) => handleDelete(trade.id, e)} className="p-1.5 hover:bg-surfaceHighlight rounded text-textMuted hover:text-danger transition-colors" title="Delete">
                            <Trash2 size={16} />
                         </button>
@@ -1211,8 +1247,65 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                                  </div>
                                </div>
 
+                               {/* ROLL SERIES PANEL */}
+                               {(trade as any).rollSeriesId && (() => {
+                                 const seriesId = (trade as any).rollSeriesId as string;
+                                 const legs = [...trades]
+                                   .filter(t => (t as any).rollSeriesId === seriesId)
+                                   .sort((a, b) => a.date.localeCompare(b.date));
+                                 const seriesPnl = legs.reduce((sum, t) => {
+                                   if (t.status === TradeStatus.ROLLED) return sum + ((t as any).rollCredit ?? 0);
+                                   if (t.status === TradeStatus.CLOSED) return sum + (t.pnl ?? 0);
+                                   return sum;
+                                 }, 0);
+                                 const isSeriesComplete = legs.every(t => t.status !== TradeStatus.OPEN);
+                                 return (
+                                   <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                                     <div className="flex items-center gap-2 mb-2 text-amber-400 text-xs font-semibold uppercase tracking-wider">
+                                       <Link2 size={12} /> Roll Series ({legs.length} leg{legs.length !== 1 ? 's' : ''})
+                                     </div>
+                                     {legs.map((leg, i) => {
+                                       const lw = (leg.pnl ?? 0) > 0;
+                                       const ll = (leg.pnl ?? 0) < 0;
+                                       return (
+                                         <div key={leg.id} className="flex items-center gap-2 text-xs text-textMuted py-1.5 border-b border-amber-500/10 last:border-0">
+                                           <span className="w-4 text-center text-amber-400/60 font-mono">{i + 1}</span>
+                                           <span className="font-mono text-text/50 shrink-0">{leg.date}</span>
+                                           <span className="font-medium text-text flex-1 truncate">{leg.symbol}</span>
+                                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0 ${
+                                             leg.status === TradeStatus.ROLLED ? 'bg-amber-500/10 text-amber-400' :
+                                             leg.status === TradeStatus.OPEN   ? 'bg-blue-500/10 text-blue-400' :
+                                             lw ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                                           }`}>{leg.status}</span>
+                                           <span className={`font-mono shrink-0 ${
+                                             leg.status === TradeStatus.ROLLED ? 'text-amber-400' :
+                                             leg.status === TradeStatus.OPEN   ? 'text-textMuted' :
+                                             lw ? 'text-success' : 'text-danger'
+                                           }`}>
+                                             {leg.status === TradeStatus.ROLLED
+                                               ? ((trade as any).rollCredit != null
+                                                   ? `${((leg as any).rollCredit ?? 0) >= 0 ? '+' : ''}${((leg as any).rollCredit ?? 0).toFixed(2)}`
+                                                   : '-')
+                                               : leg.status === TradeStatus.OPEN ? 'open'
+                                               : (leg.pnl != null ? `${lw ? '+' : ''}${leg.pnl.toFixed(2)}` : '-')}
+                                           </span>
+                                         </div>
+                                       );
+                                     })}
+                                     {isSeriesComplete && (
+                                       <div className="flex items-center justify-between text-xs mt-2 pt-1.5 border-t border-amber-500/20">
+                                         <span className="text-textMuted font-medium">Series Total P&L</span>
+                                         <span className={`font-mono font-bold ${seriesPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                                           {seriesPnl >= 0 ? '+' : ''}${Math.abs(seriesPnl).toFixed(2)}
+                                         </span>
+                                       </div>
+                                     )}
+                                   </div>
+                                 );
+                               })()}
+
                                {/* PRE-MARKET CONTEXT */}
-                               <div 
+                               <div
                                   className="flex flex-col gap-2 cursor-pointer group/context"
                                   onClick={() => setFloatingView({
                                     title: `Pre-Market Context - ${trade.date}`,
@@ -1256,6 +1349,18 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
         </div>
       </div>
       )}
+
+      {/* Roll Modal */}
+      {rollTradeId && (() => {
+        const rollTrade = trades.find(t => t.id === rollTradeId);
+        return rollTrade ? (
+          <RollModal
+            trade={rollTrade}
+            onConfirm={(data) => { onRollTrade?.(rollTrade, data); setRollTradeId(null); }}
+            onCancel={() => setRollTradeId(null)}
+          />
+        ) : null;
+      })()}
 
       {/* Trade Detail Modal (Feature 9) */}
       {detailTradeId && (() => {
@@ -1489,7 +1594,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                         </div>
                         
                         <div>
-                          <label className="block text-xs text-textMuted mb-1">Date</label>
+                          <label className="block text-xs text-textMuted mb-1">Entry Date</label>
                           <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="w-full bg-background border border-surfaceHighlight rounded-lg px-3 py-2 text-text focus:border-primary outline-none" />
                         </div>
                         <div>
@@ -1540,6 +1645,10 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                               readOnly={exits.length > 0}
                             />
                           </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-textMuted mb-1">Exit Date</label>
+                          <input type="date" value={exitDate} onChange={e => setExitDate(e.target.value)} className="w-full bg-background border border-surfaceHighlight rounded-lg px-3 py-2 text-text focus:border-primary outline-none" />
                         </div>
                         <div>
                           <label className="block text-xs text-textMuted mb-1">Exit Time</label>

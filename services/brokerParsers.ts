@@ -433,7 +433,7 @@ interface QTOptionInfo {
 }
 
 // Format an ISO expiry date into a compact readable label e.g. "2026-01-16" → "Jan16'26"
-function formatOptionExpiry(isoDate: string): string {
+export function formatOptionExpiry(isoDate: string): string {
   const parts = isoDate.split('-');
   if (parts.length !== 3) return isoDate;
   const [yyyy, mm, dd] = parts;
@@ -496,6 +496,7 @@ function parseQuestrade(lines: string[]): ParseResult {
     isOption: boolean;
     description: string;
     optionInfo?: QTOptionInfo;
+    tradeNum: string;       // Trade # from CSV, used to detect roll pairs
   }
 
   const rows: QTOrderRow[] = [];
@@ -547,6 +548,8 @@ function parseQuestrade(lines: string[]): ParseResult {
       continue;
     }
 
+    const tradeNum = (getVal(['trade #', 'trade#', 'trade number']) || '').trim();
+
     rows.push({
       contractKey,
       displaySymbol,
@@ -559,6 +562,7 @@ function parseQuestrade(lines: string[]): ParseResult {
       isOption,
       description,
       optionInfo,
+      tradeNum,
     });
   }
 
@@ -655,6 +659,49 @@ function parseQuestrade(lines: string[]): ParseResult {
       });
       warnings.push(`${orphan.displaySymbol}: unmatched ${orphan.isBuy ? 'buy' : 'sell'} (${orphan.qty} on ${orphan.date}) — imported as OPEN`);
     }
+  }
+
+  // ── Roll Detection Pass ──────────────────────────────────────────
+  // Two option rows with the same Trade # + same underlying + same optionType + different expiry = a roll.
+  const byTradeNum = new Map<string, QTOrderRow[]>();
+  for (const r of rows) {
+    if (!r.tradeNum || !r.isOption) continue;
+    const g = byTradeNum.get(r.tradeNum) ?? [];
+    g.push(r);
+    byTradeNum.set(r.tradeNum, g);
+  }
+
+  for (const [tradeNum, group] of byTradeNum) {
+    if (group.length !== 2) continue;
+    const buyer  = group.find(r =>  r.isBuy);
+    const seller = group.find(r => !r.isBuy);
+    if (!buyer || !seller) continue;
+    const bi = buyer.optionInfo;
+    const si = seller.optionInfo;
+    if (!bi || !si) continue;
+    if (bi.underlying !== si.underlying || bi.optionType !== si.optionType) continue;
+    if (bi.expiry === si.expiry) continue; // same expiry = not a roll
+
+    // Find the matched trades in the output array
+    const closerTrade = trades.find(t => t.symbol === buyer.displaySymbol && t.date === buyer.date);
+    const openerTrade = trades.find(t => t.symbol === seller.displaySymbol && t.date === seller.date
+      && t.status === TradeStatus.OPEN);
+    if (!closerTrade || !openerTrade) continue;
+
+    const seriesId   = `series-qt-${tradeNum}`;
+    const rollCredit = parseFloat((buyer.netAmount + seller.netAmount).toFixed(2));
+    const creditStr  = `${rollCredit >= 0 ? '+' : ''}$${Math.abs(rollCredit).toFixed(2)}`;
+
+    (closerTrade as any).status       = TradeStatus.ROLLED;
+    (closerTrade as any).rollCredit   = rollCredit;
+    (closerTrade as any).rollSeriesId = seriesId;
+    (closerTrade as any).rollNextId   = openerTrade.id;
+    (openerTrade as any).rollSeriesId = seriesId;
+    (openerTrade as any).rollPrevId   = closerTrade.id;
+
+    warnings.push(
+      `Roll detected (Trade #${tradeNum}): ${buyer.displaySymbol} → ${seller.displaySymbol}, credit: ${creditStr}`
+    );
   }
 
   return { format: 'questrade', formatLabel: 'Questrade', trades, warnings };
