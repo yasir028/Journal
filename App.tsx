@@ -34,7 +34,9 @@ const App: React.FC = () => {
 
   // --- DATA STATE ---
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [activeAccountId, setActiveAccountId] = useState<string>('default');
+  const [activeAccountId, setActiveAccountId] = useState<string>(
+    () => localStorage.getItem('activeAccountId') || 'default'
+  );
   const [trades, setTrades] = useState<Trade[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>(DEFAULT_PLAYBOOKS);
@@ -87,11 +89,13 @@ const App: React.FC = () => {
       try {
         // 1. Load Accounts
         const accRes = await fetch(`${API_URL}/accounts`);
+        let resolvedAccountId = activeAccountId;
         if (accRes.ok) {
             const accData = await accRes.json();
             if (accData.length > 0) {
                 setAccounts(accData);
                 if (!accData.find((a: Account) => a.id === activeAccountId)) {
+                    resolvedAccountId = accData[0].id;
                     setActiveAccountId(accData[0].id);
                 }
             }
@@ -146,16 +150,16 @@ const App: React.FC = () => {
         const ruleSettingsRes = await fetch(`${API_URL}/rule_settings`);
         if (ruleSettingsRes.ok) setRuleSettings(await ruleSettingsRes.json());
 
-        // 10. Load AI Recaps
-        const recapsRes = await fetch(`${API_URL}/ai_recaps`);
+        // 10. Load AI Recaps (filtered by active account)
+        const recapsRes = await fetch(`${API_URL}/ai_recaps?accountId=${resolvedAccountId}`);
         if (recapsRes.ok) setAiRecaps(await recapsRes.json());
 
-        // 11. Load Deep Analyses
-        const deepRes = await fetch(`${API_URL}/deep_analyses`);
+        // 11. Load Deep Analyses (filtered by active account)
+        const deepRes = await fetch(`${API_URL}/deep_analyses?accountId=${resolvedAccountId}`);
         if (deepRes.ok) setDeepAnalyses(await deepRes.json());
 
-        // 12. Load Psych Profiles
-        const psychRes = await fetch(`${API_URL}/psych_profiles`);
+        // 12. Load Psych Profiles (filtered by active account)
+        const psychRes = await fetch(`${API_URL}/psych_profiles?accountId=${resolvedAccountId}`);
         if (psychRes.ok) setPsychProfiles(await psychRes.json());
 
       } catch (error) {
@@ -551,7 +555,7 @@ const App: React.FC = () => {
       const res = await fetch(`${API_URL}/ai_recaps/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -581,7 +585,7 @@ const App: React.FC = () => {
       const res = await fetch(`${API_URL}/deep_analyses/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -611,7 +615,7 @@ const App: React.FC = () => {
       const res = await fetch(`${API_URL}/psych_profiles/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end }),
+        body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -673,6 +677,27 @@ const App: React.FC = () => {
   const activeTrades = useMemo(() => trades.filter(t => t.accountId === activeAccountId), [trades, activeAccountId]);
   const activeAccountName = accounts.find(a => a.id === activeAccountId)?.name || 'Loading...';
 
+  // Persist active account to localStorage so it survives page refresh
+  useEffect(() => {
+    localStorage.setItem('activeAccountId', activeAccountId);
+  }, [activeAccountId]);
+
+  // Reload AI data whenever active account changes (after initial load is done)
+  useEffect(() => {
+    if (isLoading) return;
+    const reload = async () => {
+      const [recapsRes, deepRes, psychRes] = await Promise.all([
+        fetch(`${API_URL}/ai_recaps?accountId=${activeAccountId}`),
+        fetch(`${API_URL}/deep_analyses?accountId=${activeAccountId}`),
+        fetch(`${API_URL}/psych_profiles?accountId=${activeAccountId}`),
+      ]);
+      if (recapsRes.ok) setAiRecaps(await recapsRes.json());
+      if (deepRes.ok) setDeepAnalyses(await deepRes.json());
+      if (psychRes.ok) setPsychProfiles(await psychRes.json());
+    };
+    reload();
+  }, [activeAccountId, isLoading]);
+
   useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
@@ -729,7 +754,7 @@ const App: React.FC = () => {
             </div>
             <ChevronDown size={14} className="text-textMuted shrink-0" />
           </button>
-          
+
           {isAccountMenuOpen && (
             <div className="absolute top-full left-4 right-4 mt-2 bg-surface border border-surfaceHighlight rounded-lg shadow-xl z-50 overflow-hidden">
               <div className="max-h-[200px] overflow-y-auto">
@@ -739,7 +764,7 @@ const App: React.FC = () => {
                       {acc.name}
                     </button>
                     <button onClick={(e) => handleDeleteAccount(acc.id, e)} className="p-1.5 text-textMuted hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity rounded">
-                        <Trash2 size={14} />
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 ))}
@@ -747,8 +772,8 @@ const App: React.FC = () => {
               <div className="h-px bg-surfaceHighlight my-1"></div>
               {isAddingAccount ? (
                 <form onSubmit={handleSaveNewAccount} className="p-2 bg-surfaceHighlight/30">
-                   <input autoFocus type="text" value={newAccountName} onChange={e => setNewAccountName(e.target.value)} placeholder="Name" className="w-full bg-background border border-surfaceHighlight rounded px-2 py-1.5 text-xs text-text mb-2" />
-                   <button type="submit" className="w-full bg-primary text-white text-xs py-1.5 rounded">Save</button>
+                  <input autoFocus type="text" value={newAccountName} onChange={e => setNewAccountName(e.target.value)} placeholder="Account name" className="w-full bg-background border border-surfaceHighlight rounded px-2 py-1.5 text-xs text-text mb-2" />
+                  <button type="submit" className="w-full bg-primary text-white text-xs py-1.5 rounded">Save</button>
                 </form>
               ) : (
                 <button onClick={() => setIsAddingAccount(true)} className="w-full text-left px-4 py-2 text-xs text-textMuted hover:text-text hover:bg-surfaceHighlight flex items-center gap-2">

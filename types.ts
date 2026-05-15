@@ -28,9 +28,16 @@ export enum Emotion {
   REVENGE = 'Revenge'
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  createdAt?: string;
+}
+
 export interface Account {
   id: string;
   name: string;
+  profileId?: string;
 }
 
 export interface Playbook {

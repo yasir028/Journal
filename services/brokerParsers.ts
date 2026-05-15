@@ -931,6 +931,72 @@ function parseInternal(lines: string[]): ParseResult {
   return { format: 'internal', formatLabel: 'MindfulTrader', trades, warnings };
 }
 
+// ── Merge duplicate trades ───────────────────────────────────────
+// If two parsed trades share the same symbol + date + entryTime + entryPrice + type
+// they are treated as partial fills of one order and merged into a single trade.
+// Quantities sum; PnL and fees sum; exitPrice is quantity-weighted average.
+
+function mergeDuplicateTrades(trades: Trade[], warnings: string[]): Trade[] {
+  const groups = new Map<string, Trade[]>();
+
+  for (const t of trades) {
+    // Normalise entryTime: strip seconds so "09:30:00" and "09:30" match
+    const time = (t.entryTime ?? '').slice(0, 5);
+    const key = [
+      t.symbol?.toUpperCase() ?? '',
+      t.date ?? '',
+      time,
+      String(t.entryPrice ?? ''),
+      t.type ?? '',
+    ].join('|');
+
+    const g = groups.get(key) ?? [];
+    g.push(t);
+    groups.set(key, g);
+  }
+
+  const merged: Trade[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      continue;
+    }
+
+    // Base fields come from the first trade
+    const base = { ...group[0] };
+    let totalQty = 0;
+    let totalPnl = 0;
+    let totalFees = 0;
+    let exitPriceWeightedSum = 0;
+    let hasPnl = false;
+
+    for (const t of group) {
+      const qty = t.quantity ?? 0;
+      totalQty += qty;
+      if (t.pnl != null) { totalPnl += t.pnl; hasPnl = true; }
+      if (t.fees != null) totalFees += t.fees;
+      if (t.exitPrice != null) exitPriceWeightedSum += t.exitPrice * qty;
+    }
+
+    base.quantity = totalQty;
+    base.fees = parseFloat(totalFees.toFixed(2));
+    if (hasPnl) base.pnl = parseFloat(totalPnl.toFixed(2));
+    if (totalQty > 0 && exitPriceWeightedSum > 0) {
+      base.exitPrice = parseFloat((exitPriceWeightedSum / totalQty).toFixed(4));
+    }
+
+    warnings.push(
+      `Merged ${group.length} fills into one trade: ${base.symbol} ${base.type} ` +
+      `on ${base.date}${base.entryTime ? ' @' + base.entryTime : ''} ` +
+      `(qty ${totalQty}${hasPnl ? `, P&L $${base.pnl}` : ''})`
+    );
+
+    merged.push(base);
+  }
+
+  return merged;
+}
+
 // ── Main Entry Point ────────────────────────────────────────────
 
 export function parseCSV(text: string): ParseResult {
@@ -941,19 +1007,24 @@ export function parseCSV(text: string): ParseResult {
 
   const { format, headerLineIndex } = detectFormat(text);
 
+  let result: ParseResult;
   switch (format) {
     case 'tradovate':
-      return parseTradovate(lines);
+      result = parseTradovate(lines); break;
     case 'interactivebrokers':
-      if (headerLineIndex > 0) {
-        return parseIBMultiSection(text, headerLineIndex);
-      }
-      return parseIBSimple(lines);
+      result = headerLineIndex > 0
+        ? parseIBMultiSection(text, headerLineIndex)
+        : parseIBSimple(lines);
+      break;
     case 'questrade':
-      return parseQuestrade(lines);
+      result = parseQuestrade(lines); break;
     case 'internal':
-      return parseInternal(lines);
+      result = parseInternal(lines); break;
     default:
       return { format: 'unknown', formatLabel: 'Unknown', trades: [], warnings: [] };
   }
+
+  // Merge partial fills that share the same symbol + date + time + price + direction
+  result.trades = mergeDuplicateTrades(result.trades, result.warnings);
+  return result;
 }

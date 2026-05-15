@@ -31,9 +31,16 @@ db.pragma('foreign_keys = ON');
 
 // ── CREATE TABLES ───────────────────────────────────────────────
 db.exec(`
+  CREATE TABLE IF NOT EXISTS profiles (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS accounts (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
+    profileId  TEXT REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -172,6 +179,12 @@ try { db.exec('ALTER TABLE trades ADD COLUMN rating INTEGER DEFAULT 0'); } catch
 ['optionType TEXT', 'rollSeriesId TEXT', 'rollPrevId TEXT', 'rollNextId TEXT', 'rollCredit REAL', 'exitDate TEXT']
   .forEach(col => { try { db.exec(`ALTER TABLE trades ADD COLUMN ${col}`); } catch {} });
 
+// ── MIGRATIONS: profiles + accountId on AI tables ────────────────
+try { db.exec('ALTER TABLE accounts ADD COLUMN profileId TEXT'); } catch {}
+['ai_recaps', 'deep_analyses', 'psych_profiles'].forEach(tbl => {
+  try { db.exec(`ALTER TABLE ${tbl} ADD COLUMN accountId TEXT`); } catch {}
+});
+
 // Seed default account if empty
 const accountCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get();
 if (accountCount.c === 0) {
@@ -260,14 +273,40 @@ app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
+// ── PROFILES ─────────────────────────────────────────────────────
+app.get('/profiles', (req, res) => {
+  res.json(db.prepare('SELECT * FROM profiles ORDER BY created_at').all());
+});
+app.post('/profiles', (req, res) => {
+  const { id, name } = req.body;
+  db.prepare('INSERT INTO profiles (id, name) VALUES (?, ?)').run(id, name);
+  res.json({ id, name });
+});
+app.put('/profiles/:id', (req, res) => {
+  const { name } = req.body;
+  db.prepare('UPDATE profiles SET name = ? WHERE id = ?').run(name, req.params.id);
+  res.json({ id: req.params.id, name });
+});
+app.delete('/profiles/:id', (req, res) => {
+  // Orphan accounts before deleting profile
+  db.prepare('UPDATE accounts SET profileId = NULL WHERE profileId = ?').run(req.params.id);
+  db.prepare('DELETE FROM profiles WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ── ACCOUNTS ────────────────────────────────────────────────────
 app.get('/accounts', (req, res) => {
   res.json(db.prepare('SELECT * FROM accounts ORDER BY created_at').all());
 });
 app.post('/accounts', (req, res) => {
-  const { id, name } = req.body;
-  db.prepare('INSERT INTO accounts (id, name) VALUES (?, ?)').run(id, name);
-  res.json({ id, name });
+  const { id, name, profileId } = req.body;
+  db.prepare('INSERT INTO accounts (id, name, profileId) VALUES (?, ?, ?)').run(id, name, profileId ?? null);
+  res.json({ id, name, profileId: profileId ?? null });
+});
+app.put('/accounts/:id', (req, res) => {
+  const { name, profileId } = req.body;
+  db.prepare('UPDATE accounts SET name = ?, profileId = ? WHERE id = ?').run(name, profileId ?? null, req.params.id);
+  res.json({ id: req.params.id, name, profileId: profileId ?? null });
 });
 app.delete('/accounts/:id', (req, res) => {
   db.prepare('DELETE FROM accounts WHERE id = ?').run(req.params.id);
@@ -1127,9 +1166,12 @@ app.get('/health', (req, res) => {
 // ── AI RECAPS ROUTES ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-// ── GET /ai_recaps — Return all saved recaps ─────────────────────
+// ── GET /ai_recaps — Return saved recaps filtered to account (+ legacy NULL records) ──
 app.get('/ai_recaps', (req, res) => {
-  const rows = db.prepare('SELECT * FROM ai_recaps ORDER BY period_start DESC').all();
+  const { accountId } = req.query;
+  const rows = accountId
+    ? db.prepare('SELECT * FROM ai_recaps WHERE accountId = ? OR accountId IS NULL ORDER BY period_start DESC').all(accountId)
+    : db.prepare('SELECT * FROM ai_recaps ORDER BY period_start DESC').all();
   res.json(rows);
 });
 
@@ -1140,18 +1182,19 @@ app.delete('/ai_recaps/:id', (req, res) => {
 });
 
 // ── POST /ai_recaps/generate ─────────────────────────────────────
-// Body: { period_type: 'weekly'|'monthly', period_start: 'YYYY-MM-DD', period_end: 'YYYY-MM-DD' }
+// Body: { period_type: 'weekly'|'monthly', period_start: 'YYYY-MM-DD', period_end: 'YYYY-MM-DD', accountId? }
 app.post('/ai_recaps/generate', async (req, res) => {
   try {
-    const { period_type, period_start, period_end } = req.body;
+    const { period_type, period_start, period_end, accountId } = req.body;
     if (!period_type || !period_start || !period_end) {
       return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
     }
 
     // ── 1. Fetch raw data for the period ──
-    const trades = db.prepare(
-      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
-    ).all(period_start, period_end).map(rowToTrade);
+    const trades = (accountId
+      ? db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? AND accountId = ? ORDER BY date ASC').all(period_start, period_end, accountId)
+      : db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC').all(period_start, period_end)
+    ).map(rowToTrade);
 
     const journalRows = db.prepare(
       'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
@@ -1271,11 +1314,11 @@ Write the recap now. Be specific to the numbers. If the period has no trades, sa
     if (!content) throw new Error('Gemma returned empty response');
 
     // ── 5. Save and return ──
-    const recapId = `${period_type}-${period_start}`;
+    const recapId = `${period_type}-${accountId ?? 'all'}-${period_start}`;
     db.prepare(`
-      INSERT OR REPLACE INTO ai_recaps (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
-      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
-    `).run(recapId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+      INSERT OR REPLACE INTO ai_recaps (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl, accountId)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+    `).run(recapId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)), accountId ?? null);
 
     const saved = db.prepare('SELECT * FROM ai_recaps WHERE id = ?').get(recapId);
     res.json(saved);
@@ -1289,9 +1332,12 @@ Write the recap now. Be specific to the numbers. If the period has no trades, sa
   }
 });
 
-// ── GET /deep_analyses — list all saved deep analyses ────────────
+// ── GET /deep_analyses — list saved analyses filtered to account (+ legacy NULL records) ──
 app.get('/deep_analyses', (req, res) => {
-  const rows = db.prepare('SELECT * FROM deep_analyses ORDER BY period_start DESC').all();
+  const { accountId } = req.query;
+  const rows = accountId
+    ? db.prepare('SELECT * FROM deep_analyses WHERE accountId = ? OR accountId IS NULL ORDER BY period_start DESC').all(accountId)
+    : db.prepare('SELECT * FROM deep_analyses ORDER BY period_start DESC').all();
   res.json(rows);
 });
 
@@ -1302,18 +1348,19 @@ app.delete('/deep_analyses/:id', (req, res) => {
 });
 
 // ── POST /deep_analyses/generate ─────────────────────────────────
-// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end }
+// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end, accountId? }
 app.post('/deep_analyses/generate', async (req, res) => {
   try {
-    const { period_type, period_start, period_end } = req.body;
+    const { period_type, period_start, period_end, accountId } = req.body;
     if (!period_type || !period_start || !period_end) {
       return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
     }
 
     // ── 1. Fetch raw data for the period ──
-    const trades = db.prepare(
-      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
-    ).all(period_start, period_end).map(rowToTrade);
+    const trades = (accountId
+      ? db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? AND accountId = ? ORDER BY date ASC').all(period_start, period_end, accountId)
+      : db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC').all(period_start, period_end)
+    ).map(rowToTrade);
 
     const journalRows = db.prepare(
       'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
@@ -1380,11 +1427,11 @@ ${context}`;
     if (!content) throw new Error('Gemma returned empty response');
 
     // ── 4. Save and return ──
-    const analysisId = `deep-${period_type}-${period_start}`;
+    const analysisId = `deep-${period_type}-${accountId ?? 'all'}-${period_start}`;
     db.prepare(`
-      INSERT OR REPLACE INTO deep_analyses (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
-      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
-    `).run(analysisId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+      INSERT OR REPLACE INTO deep_analyses (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl, accountId)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+    `).run(analysisId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)), accountId ?? null);
 
     const saved = db.prepare('SELECT * FROM deep_analyses WHERE id = ?').get(analysisId);
     res.json(saved);
@@ -1398,9 +1445,12 @@ ${context}`;
   }
 });
 
-// ── GET /psych_profiles — list all saved profiles ────────────────
+// ── GET /psych_profiles — list saved profiles filtered to account (+ legacy NULL records) ──
 app.get('/psych_profiles', (req, res) => {
-  const rows = db.prepare('SELECT * FROM psych_profiles ORDER BY period_start DESC').all();
+  const { accountId } = req.query;
+  const rows = accountId
+    ? db.prepare('SELECT * FROM psych_profiles WHERE accountId = ? OR accountId IS NULL ORDER BY period_start DESC').all(accountId)
+    : db.prepare('SELECT * FROM psych_profiles ORDER BY period_start DESC').all();
   res.json(rows);
 });
 
@@ -1411,18 +1461,19 @@ app.delete('/psych_profiles/:id', (req, res) => {
 });
 
 // ── POST /psych_profiles/generate ────────────────────────────────
-// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end }
+// Body: { period_type: 'daily'|'weekly'|'monthly'|'yearly', period_start, period_end, accountId? }
 app.post('/psych_profiles/generate', async (req, res) => {
   try {
-    const { period_type, period_start, period_end } = req.body;
+    const { period_type, period_start, period_end, accountId } = req.body;
     if (!period_type || !period_start || !period_end) {
       return res.status(400).json({ error: 'period_type, period_start, period_end are required' });
     }
 
     // ── 1. Fetch raw data for the period ──
-    const trades = db.prepare(
-      'SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC'
-    ).all(period_start, period_end).map(rowToTrade);
+    const trades = (accountId
+      ? db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? AND accountId = ? ORDER BY date ASC').all(period_start, period_end, accountId)
+      : db.prepare('SELECT * FROM trades WHERE date >= ? AND date <= ? ORDER BY date ASC').all(period_start, period_end)
+    ).map(rowToTrade);
 
     const journalRows = db.prepare(
       'SELECT * FROM daily_journal WHERE date >= ? AND date <= ? ORDER BY date ASC'
@@ -1507,11 +1558,11 @@ ${context}`;
     if (!content) throw new Error('Gemma returned empty response');
 
     // ── 5. Save and return ──
-    const profileId = `psych-${period_type}-${period_start}`;
+    const profileId = `psych-${period_type}-${accountId ?? 'all'}-${period_start}`;
     db.prepare(`
-      INSERT OR REPLACE INTO psych_profiles (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl)
-      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)
-    `).run(profileId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)));
+      INSERT OR REPLACE INTO psych_profiles (id, period_type, period_start, period_end, content, generated_at, trade_count, net_pnl, accountId)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+    `).run(profileId, period_type, period_start, period_end, content, closedTrades.length, parseFloat(netPnl.toFixed(2)), accountId ?? null);
 
     const saved = db.prepare('SELECT * FROM psych_profiles WHERE id = ?').get(profileId);
     res.json(saved);
