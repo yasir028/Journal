@@ -395,30 +395,30 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
 
           {/* Net P&L */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2 flex items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2 flex items-center gap-1.5">
               Net P&L
               <span className="bg-surfaceHighlight text-textMuted px-1.5 py-0.5 rounded-full font-normal normal-case tracking-normal">{stats.totalTrades}</span>
             </p>
-            <p className={`text-2xl font-bold font-mono ${stats.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+            <p className={`text-2xl font-bold font-data ${stats.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
               {stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString()}
             </p>
-            <p className="text-[10px] text-textMuted mt-1">{stats.totalTrades} closed trades</p>
+            <p className="text-[10px] text-textMuted mt-1"><span className="font-data">{stats.totalTrades}</span> closed trades</p>
           </div>
 
           {/* Trade Win % */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Trade Win %</p>
-            <p className="text-2xl font-bold font-mono text-text">{stats.winRate.toFixed(1)}%</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2">Trade Win %</p>
+            <p className="text-2xl font-bold font-data text-text">{stats.winRate.toFixed(1)}%</p>
             <div className="flex gap-1.5 mt-1.5">
-              <span className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded font-mono">{stats.wins}W</span>
-              <span className="text-[10px] bg-danger/10 text-danger px-1.5 py-0.5 rounded font-mono">{stats.losses}L</span>
+              <span className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded font-data">{stats.wins}W</span>
+              <span className="text-[10px] bg-danger/10 text-danger px-1.5 py-0.5 rounded font-data">{stats.losses}L</span>
             </div>
           </div>
 
           {/* Profit Factor */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Profit Factor</p>
-            <p className={`text-2xl font-bold font-mono ${stats.profitFactor >= 1.5 ? 'text-success' : stats.profitFactor >= 1 ? 'text-text' : 'text-danger'}`}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2">Profit Factor</p>
+            <p className={`text-2xl font-bold font-data ${stats.profitFactor >= 1.5 ? 'text-success' : stats.profitFactor >= 1 ? 'text-text' : 'text-danger'}`}>
               {stats.profitFactor.toFixed(2)}x
             </p>
             <div className="mt-1.5 h-1 rounded-full bg-surfaceHighlight overflow-hidden">
@@ -428,28 +428,28 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
 
           {/* Day Win % */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Day Win %</p>
-            <p className="text-2xl font-bold font-mono text-text">{stats.dayWinRate.toFixed(1)}%</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2">Day Win %</p>
+            <p className="text-2xl font-bold font-data text-text">{stats.dayWinRate.toFixed(1)}%</p>
             <p className="text-[10px] text-textMuted mt-1">of trading days</p>
           </div>
 
           {/* Avg Win / Avg Loss */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Avg W / Avg L</p>
-            <p className="text-2xl font-bold font-mono text-text">{stats.avgWinLoss.toFixed(2)}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2">Avg W / Avg L</p>
+            <p className="text-2xl font-bold font-data text-text">{stats.avgWinLoss.toFixed(2)}</p>
             <div className="flex gap-2 mt-1.5 text-[10px]">
-              <span className="text-success font-mono">${stats.grossProfit > 0 ? Math.round(stats.grossProfit / (stats.wins || 1)).toLocaleString() : '0'}</span>
+              <span className="text-success font-data">${stats.grossProfit > 0 ? Math.round(stats.grossProfit / (stats.wins || 1)).toLocaleString() : '0'}</span>
               <span className="text-textMuted">·</span>
-              <span className="text-danger font-mono">-${stats.grossLoss > 0 ? Math.round(stats.grossLoss / (stats.losses || 1)).toLocaleString() : '0'}</span>
+              <span className="text-danger font-data">-${stats.grossLoss > 0 ? Math.round(stats.grossLoss / (stats.losses || 1)).toLocaleString() : '0'}</span>
             </div>
           </div>
 
           {/* Cost of Mistakes */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2 flex items-center gap-1">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2 flex items-center gap-1">
               <AlertTriangle size={10} className="text-danger/60" /> Mistake Cost
             </p>
-            <p className="text-2xl font-bold font-mono text-danger">
+            <p className="text-2xl font-bold font-data text-danger">
               {stats.costOfMistakes > 0 ? `-$${stats.costOfMistakes.toLocaleString()}` : '$0'}
             </p>
             <p className="text-[10px] text-textMuted mt-1">lost to errors</p>
@@ -457,8 +457,8 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
 
           {/* Total R */}
           <div className="p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Total R</p>
-            <p className={`text-2xl font-bold font-mono ${stats.totalR >= 0 ? 'text-success' : 'text-danger'}`}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted font-mono mb-2">Total R</p>
+            <p className={`text-2xl font-bold font-data ${stats.totalR >= 0 ? 'text-success' : 'text-danger'}`}>
               {stats.totalR >= 0 ? '+' : ''}{stats.totalR.toFixed(1)}R
             </p>
             <p className="text-[10px] text-textMuted mt-1">risk multiples</p>
@@ -586,7 +586,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                   <tr key={idx} className="hover:bg-surfaceHighlight/30 transition-colors">
                     <td className="px-4 py-2.5 text-textMuted text-xs">{t.date}</td>
                     <td className="px-4 py-2.5 text-text text-xs font-medium">{t.symbol}</td>
-                    <td className={`px-4 py-2.5 text-right text-xs font-mono font-medium ${(t.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                    <td className={`px-4 py-2.5 text-right text-xs font-data font-medium ${(t.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
                       {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString()}
                     </td>
                   </tr>
@@ -646,7 +646,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
               </div>
               <div className="flex items-center gap-4 text-xs">
                 <span className="text-textMuted">Monthly stats:</span>
-                <span className={`font-bold ${calendarData.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>${calendarData.totalPnl.toFixed(0)}</span>
+                <span className={`font-bold font-data ${calendarData.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>${calendarData.totalPnl.toFixed(0)}</span>
                 <span className="text-textMuted">{calendarData.tradingDays} days</span>
               </div>
             </div>
@@ -721,7 +721,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                     return (
                       <div key={idx} className="bg-surface border border-surfaceHighlight rounded-lg p-2 flex flex-col justify-center h-full shadow-sm">
                         <span className="text-[10px] text-textMuted">Week {idx + 1}</span>
-                        <span className={`text-sm font-bold ${weeklyPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                        <span className={`text-sm font-bold font-data ${weeklyPnl >= 0 ? 'text-success' : 'text-danger'}`}>
                           ${weeklyPnl.toFixed(0)}
                         </span>
                         <span className="text-[9px] text-textMuted">{weekDays} days</span>
@@ -760,7 +760,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
                     <span className="text-xs text-textMuted">{group.count} trade{group.count !== 1 ? 's' : ''}</span>
-                    <span className={`text-xs font-semibold tabular-nums ${group.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+                    <span className={`text-xs font-semibold font-data ${group.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
                       {group.totalPnl >= 0 ? '+' : ''}${group.totalPnl.toFixed(0)}
                     </span>
                     {expandedMistake === group.name
@@ -795,10 +795,10 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className={`text-sm font-bold ${(trade.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                          <p className={`text-sm font-bold font-data ${(trade.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
                             {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </p>
-                          <p className="text-[10px] text-textMuted">{trade.quantity} units</p>
+                          <p className="text-[10px] text-textMuted"><span className="font-data">{trade.quantity}</span> units</p>
                         </div>
                         <ChevronRight size={14} className="text-textMuted shrink-0" />
                       </button>

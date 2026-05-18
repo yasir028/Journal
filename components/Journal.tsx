@@ -965,7 +965,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                   {isExpanded && (
                     <div className="px-6 pb-4 animate-in slide-in-from-top-2 duration-200">
                       <table className="w-full text-left text-sm">
-                        <thead className="text-textMuted text-xs uppercase bg-surfaceHighlight/30">
+                        <thead className="text-textMuted text-xs uppercase tracking-wider bg-surfaceHighlight/30">
                           <tr>
                             <th className="px-3 py-2">Symbol</th>
                             <th className="px-3 py-2">Side</th>
@@ -984,9 +984,9 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                               <tr key={t.id} className="hover:bg-surfaceHighlight/10">
                                 <td className="px-3 py-2 font-bold text-text">{t.symbol}</td>
                                 <td className="px-3 py-2"><span className={`inline-flex items-center gap-1 font-medium ${t.type === TradeType.LONG ? 'text-success' : 'text-danger'}`}>{t.type === TradeType.LONG ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>} {t.type}</span></td>
-                                <td className="px-3 py-2 text-right text-textMuted font-mono">{t.entryPrice}</td>
-                                <td className="px-3 py-2 text-right text-textMuted font-mono">{t.exitPrice || '-'}</td>
-                                <td className={`px-3 py-2 text-right font-mono font-medium ${w ? 'text-success' : l ? 'text-danger' : 'text-textMuted'}`}>{t.pnl ? `${w ? '+' : ''}${t.pnl.toFixed(2)}` : '-'}</td>
+                                <td className="px-3 py-2 text-right text-textMuted font-data">{t.entryPrice}</td>
+                                <td className="px-3 py-2 text-right text-textMuted font-data">{t.exitPrice || '-'}</td>
+                                <td className={`px-3 py-2 text-right font-data font-medium ${w ? 'text-success' : l ? 'text-danger' : 'text-textMuted'}`}>{t.pnl ? `${w ? '+' : ''}${t.pnl.toFixed(2)}` : '-'}</td>
                                 <td className="px-3 py-2 text-center">
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
                                     t.status === TradeStatus.OPEN   ? 'bg-blue-500/10 text-blue-400' :
@@ -1027,7 +1027,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
       <div className="flex-1 overflow-hidden bg-surface rounded-xl border border-surfaceHighlight flex flex-col shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-surfaceHighlight/50 text-textMuted text-xs uppercase font-semibold sticky top-0 z-10 backdrop-blur-sm">
+            <thead className="bg-surfaceHighlight/50 text-textMuted text-xs uppercase tracking-wider font-semibold sticky top-0 z-10 backdrop-blur-sm">
               <tr>
                 <th className="w-8 py-3 pl-4"></th>
                 <th className="w-10 py-3"><button onClick={handleSelectAll} className="text-textMuted hover:text-text">{selectedIds.size > 0 && selectedIds.size === filteredTrades.length ? <CheckSquare size={16}/> : <Square size={16}/>}</button></th>
@@ -1082,11 +1082,11 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                       </span>
                     </td>
                     
-                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right`}>{trade.quantity}</td>
-                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted`}>{trade.entryPrice}</td>
-                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted`}>{trade.exitPrice || '-'}</td>
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-data`}>{trade.quantity}</td>
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted font-data`}>{trade.entryPrice}</td>
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right text-textMuted font-data`}>{trade.exitPrice || '-'}</td>
                     
-                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-mono font-medium ${
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-data font-medium ${
                       trade.status === TradeStatus.OPEN   ? 'text-textMuted' :
                       trade.status === TradeStatus.ROLLED ? 'text-amber-400' :
                       isWin ? 'text-success' : 'text-danger'

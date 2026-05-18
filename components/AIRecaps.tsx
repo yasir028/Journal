@@ -1,6 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { Sparkles, RefreshCw, Trash2, ChevronDown, ChevronUp, Calendar, TrendingUp, TrendingDown, AlertCircle, Loader2 } from 'lucide-react';
 import { AIRecap, RecapPeriodType, Trade } from '../types';
+import Callout from './Callout';
+
+type CalloutIntent = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
+
+function headingToIntent(heading: string): CalloutIntent {
+  const h = heading.toLowerCase();
+  if (/win|profit|positive|improv|strength|goal/.test(h)) return 'success';
+  if (/loss|mistake|error|break|violation|weak|drawdown/.test(h)) return 'warning';
+  return 'info';
+}
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -192,12 +202,8 @@ function RecapCard({ recap, onRegenerate, onDelete, isRegenerating }: RecapCardP
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-3">Key Takeaways</p>
                 <div className={`grid gap-3 ${insights.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
                   {insights.map((col, i) => (
-                    <div
-                      key={i}
-                      className="bg-surfaceHighlight/40 rounded-lg p-3 border border-surfaceHighlight"
-                    >
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-2">{col.heading}</p>
-                      <ul className="space-y-1">
+                    <Callout key={i} intent={headingToIntent(col.heading)} title={col.heading}>
+                      <ul className="space-y-1 mt-1">
                         {col.bullets.map((b, j) => (
                           <li key={j} className="flex gap-1.5 text-xs text-textMuted leading-snug">
                             <span className="text-primary mt-0.5 shrink-0">·</span>
@@ -205,7 +211,7 @@ function RecapCard({ recap, onRegenerate, onDelete, isRegenerating }: RecapCardP
                           </li>
                         ))}
                       </ul>
-                    </div>
+                    </Callout>
                   ))}
                 </div>
               </div>
@@ -369,12 +375,12 @@ const AIRecaps: React.FC<AIRecapsProps> = ({ recaps, trades, onGenerate, onDelet
           </div>
 
           {/* Ollama status note */}
-          <div className="mt-4 p-3 bg-surfaceHighlight/40 rounded-lg flex gap-2">
-            <AlertCircle size={14} className="text-textMuted shrink-0 mt-0.5" />
-            <p className="text-xs text-textMuted leading-relaxed">
-              Requires Ollama running locally with <code className="bg-surfaceHighlight px-1 rounded">gemma4:e4b</code> model. Generation takes ~15–30 seconds.
+          <Callout intent="neutral" className="mt-4">
+            <p className="text-xs leading-relaxed flex gap-2">
+              <AlertCircle size={14} className="text-textMuted shrink-0 mt-0.5" />
+              <span>Requires Ollama running locally with <code className="bg-surfaceHighlight px-1 rounded">gemma4:e4b</code> model. Generation takes ~15–30 seconds.</span>
             </p>
-          </div>
+          </Callout>
         </div>
 
         {/* Right panel — saved recaps */}

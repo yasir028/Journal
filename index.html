@@ -6,7 +6,7 @@
     <title>Mindful — Track. Analyze. Master.</title>
     <link rel="icon" type="image/svg+xml" href="data:,">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
         /* Light Mode — professional financial palette */
@@ -147,6 +147,8 @@
         cursor: pointer;
       }
 
+      .font-data { font-family: 'IBM Plex Mono', monospace; }
+
       @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
@@ -162,6 +164,7 @@
           extend: {
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
+              mono: ['"IBM Plex Mono"', 'monospace'],
             },
             colors: {
               background: 'var(--bg)',

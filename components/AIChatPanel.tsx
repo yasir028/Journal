@@ -1,6 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, User, Loader2 } from 'lucide-react';
 import { getQAResponse, checkOllamaStatus, ChatMessage } from '../services/ollamaService';
+import Callout from './Callout';
+
+type CalloutIntent = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
+
+function detectIntent(text: string): CalloutIntent {
+  const lower = text.toLowerCase();
+  if (/rule|revenge|break|violation|emotional|overtr/.test(lower)) return 'warning';
+  if (/great|strong|well done|peak|clean|excellent|perfect/.test(lower)) return 'success';
+  return 'info';
+}
 
 function MarkdownContent({ text }: { text: string }) {
   const lines = text.split('\n');
@@ -138,13 +148,17 @@ const AIChatPanel: React.FC = () => {
                 <Bot size={14} className="text-primary" />
               </div>
             )}
-            <div className={`max-w-[85%] rounded-xl px-3 py-2 ${
-              msg.role === 'user'
-                ? 'bg-primary text-white rounded-br-sm'
-                : 'bg-surfaceHighlight text-text rounded-bl-sm'
-            }`}>
-              {msg.role === 'ai' ? <MarkdownContent text={msg.text} /> : <p className="text-sm">{msg.text}</p>}
-            </div>
+            {msg.role === 'ai' ? (
+              <div className="max-w-[85%]">
+                <Callout intent={detectIntent(msg.text)}>
+                  <MarkdownContent text={msg.text} />
+                </Callout>
+              </div>
+            ) : (
+              <div className="max-w-[85%] rounded-xl px-3 py-2 bg-primary text-white rounded-br-sm">
+                <p className="text-sm">{msg.text}</p>
+              </div>
+            )}
             {msg.role === 'user' && (
               <div className="w-6 h-6 rounded-full bg-surfaceHighlight flex items-center justify-center shrink-0 mt-1">
                 <User size={14} className="text-textMuted" />

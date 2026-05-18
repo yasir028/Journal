@@ -696,6 +696,24 @@ const App: React.FC = () => {
   }, [activeAccountId, isLoading]);
 
   useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key.toLowerCase()) {
+        case 'd': setView('dashboard'); break;
+        case 'j': setView('journal'); break;
+        case 'n': setView('daily_journal'); break;
+        case 'a': setView('analytics'); break;
+        case 'r': setView('rules'); break;
+        case 'm': setView('mindfulness'); break;
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  useEffect(() => {
     if (isDarkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
@@ -791,16 +809,21 @@ const App: React.FC = () => {
         {/* Navigation Links */}
         <nav className="flex-1 px-3 space-y-2">
           {[
-            { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-            { id: 'journal', icon: BookOpen, label: 'Trades' },
-            { id: 'daily_journal', icon: Calendar, label: 'Daily Journal' },
-            { id: 'notebook', icon: NotebookIcon, label: 'Notebook' },
-            { id: 'analytics', icon: BarChart2, label: 'Analytics' },
-            { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
+            { id: 'dashboard',    icon: LayoutDashboard, label: 'Dashboard',    kbd: 'D' },
+            { id: 'journal',      icon: BookOpen,         label: 'Trades',       kbd: 'J' },
+            { id: 'daily_journal',icon: Calendar,         label: 'Daily Journal',kbd: 'N' },
+            { id: 'notebook',     icon: NotebookIcon,     label: 'Notebook',     kbd: '' },
+            { id: 'analytics',    icon: BarChart2,        label: 'Analytics',    kbd: 'A' },
+            { id: 'mindfulness',  icon: BrainCircuit,     label: 'Mindfulness',  kbd: 'M' },
           ].map(item => (
-             <button key={item.id} onClick={() => { setView(item.id as any); setIsMobileSidebarOpen(false); if(item.id === 'journal') setJournalFilters(undefined); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${view === item.id ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-text'}`}>
+             <button key={item.id} onClick={() => { setView(item.id as any); setIsMobileSidebarOpen(false); if(item.id === 'journal') setJournalFilters(undefined); }} className={`group w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${view === item.id ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-text'}`}>
                 <item.icon size={22} />
                 <span className="font-medium">{item.label}</span>
+                {item.kbd && (
+                  <kbd className="ml-auto text-xs px-1.5 py-0.5 rounded-sm border border-textMuted/30 text-textMuted/50 font-mono hidden group-hover:inline-block">
+                    {item.kbd}
+                  </kbd>
+                )}
              </button>
           ))}
         </nav>
