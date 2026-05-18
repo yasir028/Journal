@@ -37,7 +37,6 @@ export interface Profile {
 export interface Account {
   id: string;
   name: string;
-  profileId?: string;
 }
 
 export interface Playbook {
@@ -63,7 +62,7 @@ export interface TradeExit {
 
 export interface Trade {
   id: string;
-  accountId?: string; // Links trade to a specific account
+  accountId?: string;
   symbol: string;
   instrument?: Instrument;
   type: TradeType;
@@ -73,37 +72,30 @@ export interface Trade {
   quantity: number;
   status: TradeStatus;
   pnl?: number;
-  fees?: number; // Commissions/Fees
-  r?: number; // Risk Multiple
-  date: string; // YYYY-MM-DD
-  entryTime?: string; // HH:MM
-  exitTime?: string; // HH:MM
+  fees?: number;
+  r?: number;
+  date: string;
+  entryTime?: string;
+  exitTime?: string;
+  exitDate?: string;
   setup: string;
-  playbookId?: string; // Link to a playbook strategy
+  playbookId?: string;
   notes: string;
-  emotionPre: string; // Changed from Emotion enum to string to allow custom inputs
+  emotionPre: string;
   emotionPost?: string;
   mistakes?: string[];
+  tags?: string[];
   imageUrl?: string;
+  imageUrls?: string[];
+  audioUrl?: string;
   history?: TradeHistoryItem[];
   rating?: number;
   exits?: TradeExit[];
-}
-
-export interface Trade {
-  // ... existing fields ...
-
-  // NEW fields to add:
-  tags?: string[];
-  imageUrls?: string[];
-  audioUrl?: string;
-  optionType?: 'CALL' | 'PUT'; // For options: whether it's a call or put contract
-  exitDate?: string;      // YYYY-MM-DD — date the trade was closed (may differ from entry date)
-  // Roll chain fields
-  rollSeriesId?: string;  // Stable UUID shared by all legs in a roll chain
-  rollPrevId?:   string;  // ID of the trade this was rolled FROM
-  rollNextId?:   string;  // ID of the trade this was rolled INTO
-  rollCredit?:   number;  // Net cash received when closing this leg for the roll (+ = credit, - = debit)
+  optionType?: 'CALL' | 'PUT';
+  rollSeriesId?: string;
+  rollPrevId?: string;
+  rollNextId?: string;
+  rollCredit?: number;
 }
 
 // New Types for Notebook

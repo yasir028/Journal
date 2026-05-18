@@ -318,6 +318,53 @@ const RuleTracker: React.FC<RuleTrackerProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
 
+      {/* ── COMPLIANCE BANNER ───────────────────────────────────── */}
+      <div className={`rounded-xl p-5 border flex flex-col md:flex-row md:items-center gap-4 ${
+        todayScore
+          ? todayScore.pct >= 70 ? 'bg-success/5 border-success/25' : todayScore.pct >= 40 ? 'bg-amber-500/5 border-amber-500/25' : 'bg-danger/5 border-danger/25'
+          : 'bg-surface border-surfaceHighlight'
+      }`}>
+        <div className="flex-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-textMuted mb-1">Today's Compliance — {todayStr()}</p>
+          <div className="flex items-end gap-3">
+            <p className={`text-4xl font-bold font-mono ${
+              todayScore
+                ? todayScore.pct >= 70 ? 'text-success' : todayScore.pct >= 40 ? 'text-amber-400' : 'text-danger'
+                : 'text-textMuted'
+            }`}>{todayScore ? `${todayScore.pct}%` : '—'}</p>
+            {todayScore && (
+              <p className="text-sm text-textMuted mb-1">{todayScore.followed} of {todayScore.total} rules followed</p>
+            )}
+          </div>
+          <div className="mt-3 w-full h-2 bg-surfaceHighlight rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: todayScore ? `${todayScore.pct}%` : '0%',
+                backgroundColor: todayScore
+                  ? todayScore.pct >= 70 ? 'var(--success)' : todayScore.pct >= 40 ? '#f59e0b' : 'var(--danger)'
+                  : 'var(--text-muted)',
+              }}
+            />
+          </div>
+        </div>
+        <div className="flex gap-3 shrink-0">
+          <div className="text-center">
+            <p className="text-2xl font-bold font-mono text-text">{currentStreak}</p>
+            <p className="text-[10px] text-textMuted uppercase tracking-wide">{currentStreak === 1 ? 'day' : 'days'} streak</p>
+          </div>
+          {periodScore !== null && (
+            <>
+              <div className="w-px bg-surfaceHighlight" />
+              <div className="text-center">
+                <p className="text-2xl font-bold font-mono text-text">{periodScore}%</p>
+                <p className="text-[10px] text-textMuted uppercase tracking-wide">period avg</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ── PAGE HEADER ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>

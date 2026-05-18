@@ -89,6 +89,36 @@ function renderInlineBold(text: string): React.ReactNode {
   );
 }
 
+// ─── INSIGHT EXTRACTOR ───────────────────────────────────────────────────────
+// Parses markdown sections (## Header + bullets) into up to 3 named columns.
+interface InsightColumn { heading: string; bullets: string[] }
+
+function extractInsights(text: string): InsightColumn[] {
+  const sections: InsightColumn[] = [];
+  let currentHeading = '';
+  let currentBullets: string[] = [];
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('## ') || line.startsWith('### ')) {
+      if (currentHeading && currentBullets.length > 0) {
+        sections.push({ heading: currentHeading, bullets: currentBullets.slice(0, 3) });
+      }
+      currentHeading = line.replace(/^#+\s/, '');
+      currentBullets = [];
+    } else if ((line.startsWith('- ') || line.startsWith('• ')) && currentHeading) {
+      const bullet = line.slice(2).replace(/\*\*/g, '').trim();
+      if (bullet) currentBullets.push(bullet);
+    }
+  }
+  if (currentHeading && currentBullets.length > 0) {
+    sections.push({ heading: currentHeading, bullets: currentBullets.slice(0, 3) });
+  }
+
+  // Return at most 3 sections, skip any that have fewer than 2 bullets
+  return sections.filter(s => s.bullets.length >= 2).slice(0, 3);
+}
+
 // ─── RECAP CARD ──────────────────────────────────────────────────────────────
 
 interface RecapCardProps {
@@ -148,11 +178,41 @@ function RecapCard({ recap, onRegenerate, onDelete, isRegenerating }: RecapCardP
       </div>
 
       {/* Expanded content */}
-      {expanded && (
-        <div className="border-t border-surfaceHighlight px-5 py-4">
-          <MarkdownContent text={recap.content} />
-        </div>
-      )}
+      {expanded && (() => {
+        const insights = extractInsights(recap.content);
+        return (
+          <div className="border-t border-surfaceHighlight">
+            <div className="px-5 py-4">
+              <MarkdownContent text={recap.content} />
+            </div>
+
+            {/* Structured insight columns */}
+            {insights.length >= 2 && (
+              <div className="border-t border-surfaceHighlight mx-5 mb-5 pt-4">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-3">Key Takeaways</p>
+                <div className={`grid gap-3 ${insights.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
+                  {insights.map((col, i) => (
+                    <div
+                      key={i}
+                      className="bg-surfaceHighlight/40 rounded-lg p-3 border border-surfaceHighlight"
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-2">{col.heading}</p>
+                      <ul className="space-y-1">
+                        {col.bullets.map((b, j) => (
+                          <li key={j} className="flex gap-1.5 text-xs text-textMuted leading-snug">
+                            <span className="text-primary mt-0.5 shrink-0">·</span>
+                            <span>{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

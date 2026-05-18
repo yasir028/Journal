@@ -103,11 +103,13 @@ const Analytics: React.FC<AnalyticsProps> = ({
     const expectancy = (winRate / 100 * avgWin) - ((1 - winRate / 100) * avgLoss);
     
     // Hold Time Calculation
+    const toMinutes = (hhmm: string) => {
+        const [h, m] = hhmm.split(':').map(Number);
+        return h * 60 + (m || 0);
+    };
     const getHoldTime = (t: Trade) => {
         if (!t.entryTime || !t.exitTime) return 0;
-        const start = parseInt(t.entryTime.replace(':', ''));
-        const end = parseInt(t.exitTime.replace(':', ''));
-        return Math.max(0, end - start);
+        return Math.max(0, toMinutes(t.exitTime) - toMinutes(t.entryTime));
     };
 
     const avgHoldWin = wins.length > 0 ? wins.reduce((acc, t) => acc + getHoldTime(t), 0) / wins.length : 0;

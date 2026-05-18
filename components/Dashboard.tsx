@@ -389,96 +389,81 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
         )}
       </div>
 
-      {/* ═══════════════ STATS CARDS ROW ═══════════════ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
-        {/* Net P&L */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-textMuted text-xs font-medium flex items-center gap-1">Net P&L <Info size={11} className="opacity-40" /> <span className="ml-1 bg-surfaceHighlight text-textMuted text-[10px] px-1.5 py-0.5 rounded-full">{stats.totalTrades}</span></p>
-              <p className={`text-2xl font-bold mt-1.5 ${stats.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                ${stats.totalPnl.toLocaleString()}
-              </p>
-            </div>
-            <MiniDonut value={stats.totalPnl >= 0 ? 75 : 25} color={stats.totalPnl >= 0 ? '#22c55e' : '#ef4444'} />
-          </div>
-        </div>
+      {/* ═══════════════ KPI STRIP ═══════════════ */}
+      <div className="bg-surface rounded-xl border border-surfaceHighlight overflow-hidden" style={{ boxShadow: 'var(--shadow-card)' }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 divide-y divide-surfaceHighlight md:divide-y-0 md:divide-x md:divide-surfaceHighlight">
 
-        {/* Trade Win % */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-textMuted text-xs font-medium flex items-center gap-1">Trade Win % <Info size={11} className="opacity-40" /></p>
-              <p className="text-2xl font-bold mt-1.5 text-text">{stats.winRate.toFixed(1)}%</p>
-            </div>
-            <MiniDonut value={stats.winRate} color={stats.winRate >= 50 ? '#22c55e' : '#ef4444'} />
+          {/* Net P&L */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2 flex items-center gap-1.5">
+              Net P&L
+              <span className="bg-surfaceHighlight text-textMuted px-1.5 py-0.5 rounded-full font-normal normal-case tracking-normal">{stats.totalTrades}</span>
+            </p>
+            <p className={`text-2xl font-bold font-mono ${stats.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+              {stats.totalPnl >= 0 ? '+' : ''}${stats.totalPnl.toLocaleString()}
+            </p>
+            <p className="text-[10px] text-textMuted mt-1">{stats.totalTrades} closed trades</p>
           </div>
-          <div className="flex gap-1.5 mt-2">
-            <span className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded">{stats.wins}</span>
-            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">{stats.totalTrades - stats.wins - stats.losses}</span>
-            <span className="text-[10px] bg-danger/10 text-danger px-1.5 py-0.5 rounded">{stats.losses}</span>
-          </div>
-        </div>
 
-        {/* Profit Factor */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-textMuted text-xs font-medium flex items-center gap-1">Profit Factor <Info size={11} className="opacity-40" /></p>
-              <p className="text-2xl font-bold mt-1.5 text-accent">{stats.profitFactor.toFixed(2)}</p>
+          {/* Trade Win % */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Trade Win %</p>
+            <p className="text-2xl font-bold font-mono text-text">{stats.winRate.toFixed(1)}%</p>
+            <div className="flex gap-1.5 mt-1.5">
+              <span className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded font-mono">{stats.wins}W</span>
+              <span className="text-[10px] bg-danger/10 text-danger px-1.5 py-0.5 rounded font-mono">{stats.losses}L</span>
             </div>
-            <MiniDonut value={Math.min(stats.profitFactor, 3)} max={3} color="#8b5cf6" />
           </div>
-        </div>
 
-        {/* Day Win % */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-textMuted text-xs font-medium flex items-center gap-1">Day Win % <Info size={11} className="opacity-40" /></p>
-              <p className="text-2xl font-bold mt-1.5 text-text">{stats.dayWinRate.toFixed(1)}%</p>
+          {/* Profit Factor */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Profit Factor</p>
+            <p className={`text-2xl font-bold font-mono ${stats.profitFactor >= 1.5 ? 'text-success' : stats.profitFactor >= 1 ? 'text-text' : 'text-danger'}`}>
+              {stats.profitFactor.toFixed(2)}x
+            </p>
+            <div className="mt-1.5 h-1 rounded-full bg-surfaceHighlight overflow-hidden">
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(stats.profitFactor / 3 * 100, 100)}%` }} />
             </div>
-            <MiniDonut value={stats.dayWinRate} color={stats.dayWinRate >= 50 ? '#22c55e' : '#f59e0b'} />
           </div>
-        </div>
 
-        {/* Avg Win/Loss */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div>
-            <p className="text-textMuted text-xs font-medium flex items-center gap-1">Avg Win/Loss <Info size={11} className="opacity-40" /></p>
-            <p className="text-2xl font-bold mt-1.5 text-text">{stats.avgWinLoss.toFixed(2)}</p>
+          {/* Day Win % */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Day Win %</p>
+            <p className="text-2xl font-bold font-mono text-text">{stats.dayWinRate.toFixed(1)}%</p>
+            <p className="text-[10px] text-textMuted mt-1">of trading days</p>
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex-1 bg-surfaceHighlight h-1.5 rounded-full overflow-hidden">
-              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(stats.avgWinLoss / 4 * 100, 100)}%` }}></div>
-            </div>
-            <div className="flex gap-2 text-[10px]">
-              <span className="text-success">${stats.grossProfit > 0 ? Math.round(stats.grossProfit / (stats.wins || 1)).toLocaleString() : '0'}</span>
-              <span className="text-danger">-${stats.grossLoss > 0 ? Math.round(stats.grossLoss / (stats.losses || 1)).toLocaleString() : '0'}</span>
-            </div>
-          </div>
-        </div>
 
-        {/* Cost of Mistakes */}
-        <div className="bg-red-500/5 p-5 rounded-xl border border-red-500/20 shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-red-400/80 text-xs font-medium flex items-center gap-1"><AlertTriangle size={12} /> Cost of Mistakes</p>
-              <p className="text-2xl font-bold text-danger mt-1.5">-${stats.costOfMistakes.toLocaleString()}</p>
-              <p className="text-[10px] text-red-400/60 mt-1">Lost to errors</p>
+          {/* Avg Win / Avg Loss */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Avg W / Avg L</p>
+            <p className="text-2xl font-bold font-mono text-text">{stats.avgWinLoss.toFixed(2)}</p>
+            <div className="flex gap-2 mt-1.5 text-[10px]">
+              <span className="text-success font-mono">${stats.grossProfit > 0 ? Math.round(stats.grossProfit / (stats.wins || 1)).toLocaleString() : '0'}</span>
+              <span className="text-textMuted">·</span>
+              <span className="text-danger font-mono">-${stats.grossLoss > 0 ? Math.round(stats.grossLoss / (stats.losses || 1)).toLocaleString() : '0'}</span>
             </div>
           </div>
-        </div>
 
-        {/* Total R */}
-        <div className="bg-surface p-5 rounded-xl border border-surfaceHighlight shadow-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-textMuted text-xs font-medium flex items-center gap-1">Total R <Info size={11} className="opacity-40" /></p>
-              <p className={`text-2xl font-bold mt-1.5 ${stats.totalR >= 0 ? 'text-success' : 'text-danger'}`}>{stats.totalR.toFixed(1)}R</p>
-            </div>
-            <MiniDonut value={Math.abs(stats.totalR)} max={Math.max(Math.abs(stats.totalR), 10)} color={stats.totalR >= 0 ? '#22c55e' : '#ef4444'} />
+          {/* Cost of Mistakes */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2 flex items-center gap-1">
+              <AlertTriangle size={10} className="text-danger/60" /> Mistake Cost
+            </p>
+            <p className="text-2xl font-bold font-mono text-danger">
+              {stats.costOfMistakes > 0 ? `-$${stats.costOfMistakes.toLocaleString()}` : '$0'}
+            </p>
+            <p className="text-[10px] text-textMuted mt-1">lost to errors</p>
           </div>
+
+          {/* Total R */}
+          <div className="p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-2">Total R</p>
+            <p className={`text-2xl font-bold font-mono ${stats.totalR >= 0 ? 'text-success' : 'text-danger'}`}>
+              {stats.totalR >= 0 ? '+' : ''}{stats.totalR.toFixed(1)}R
+            </p>
+            <p className="text-[10px] text-textMuted mt-1">risk multiples</p>
+          </div>
+
         </div>
       </div>
 

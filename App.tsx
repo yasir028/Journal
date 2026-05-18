@@ -455,14 +455,20 @@ const App: React.FC = () => {
   const handleDeleteAccount = async (accountId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (accounts.length <= 1) return alert("You cannot delete the only account.");
-    if (!window.confirm("Are you sure? This will hide trades associated with this account.")) return;
+    if (!window.confirm("Delete this account? Its trades will become unassociated and hidden from all views. This cannot be undone.")) return;
 
     try {
         await fetch(`${API_URL}/accounts/${accountId}`, { method: 'DELETE' });
-        setAccounts(prev => prev.filter(a => a.id !== accountId));
+        const remaining = accounts.filter(a => a.id !== accountId);
+        setAccounts(remaining);
         if (activeAccountId === accountId) {
-             const nextAccount = accounts.find(a => a.id !== accountId);
-             if (nextAccount) setActiveAccountId(nextAccount.id);
+            const next = remaining[0];
+            if (next) {
+                setActiveAccountId(next.id);
+                localStorage.setItem('activeAccountId', next.id);
+            } else {
+                localStorage.removeItem('activeAccountId');
+            }
         }
         addToast("Account deleted", 'info');
     } catch (err) { addToast("Failed to delete account", 'error'); }
@@ -558,14 +564,11 @@ const App: React.FC = () => {
         body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Generation failed');
+        const body = await res.json();
+        throw new Error(body.hint ? `${body.error} — ${body.hint}` : body.error || 'Generation failed');
       }
       const saved: AIRecap = await res.json();
-      setAiRecaps(prev => {
-        const filtered = prev.filter(r => r.id !== saved.id);
-        return [saved, ...filtered];
-      });
+      setAiRecaps(prev => [saved, ...prev.filter(r => r.id !== saved.id)]);
       addToast('Recap generated!');
     } catch (err: any) {
       addToast(err.message || 'Failed to generate recap.', 'error');
@@ -588,14 +591,11 @@ const App: React.FC = () => {
         body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Generation failed');
+        const body = await res.json();
+        throw new Error(body.hint ? `${body.error} — ${body.hint}` : body.error || 'Generation failed');
       }
       const saved: DeepAnalysis = await res.json();
-      setDeepAnalyses(prev => {
-        const filtered = prev.filter(a => a.id !== saved.id);
-        return [saved, ...filtered];
-      });
+      setDeepAnalyses(prev => [saved, ...prev.filter(a => a.id !== saved.id)]);
       addToast('Deep analysis generated!');
     } catch (err: any) {
       addToast(err.message || 'Failed to generate analysis.', 'error');
@@ -618,14 +618,11 @@ const App: React.FC = () => {
         body: JSON.stringify({ period_type: periodType, period_start: start, period_end: end, accountId: activeAccountId }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Generation failed');
+        const body = await res.json();
+        throw new Error(body.hint ? `${body.error} — ${body.hint}` : body.error || 'Generation failed');
       }
       const saved: PsychProfile = await res.json();
-      setPsychProfiles(prev => {
-        const filtered = prev.filter(p => p.id !== saved.id);
-        return [saved, ...filtered];
-      });
+      setPsychProfiles(prev => [saved, ...prev.filter(p => p.id !== saved.id)]);
       addToast('Psychological profile generated!');
     } catch (err: any) {
       addToast(err.message || 'Failed to generate profile.', 'error');
@@ -800,7 +797,6 @@ const App: React.FC = () => {
             { id: 'notebook', icon: NotebookIcon, label: 'Notebook' },
             { id: 'analytics', icon: BarChart2, label: 'Analytics' },
             { id: 'mindfulness', icon: BrainCircuit, label: 'Mindfulness' },
-            { id: 'settings', icon: SettingsIcon, label: 'Settings' },
           ].map(item => (
              <button key={item.id} onClick={() => { setView(item.id as any); setIsMobileSidebarOpen(false); if(item.id === 'journal') setJournalFilters(undefined); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${view === item.id ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-text'}`}>
                 <item.icon size={22} />
@@ -809,8 +805,15 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {/* Theme Toggle */}
-        <div className="p-4 border-t border-surfaceHighlight mt-auto flex items-center justify-center">
+        {/* Bottom bar — Settings + Theme Toggle */}
+        <div className="p-4 border-t border-surfaceHighlight mt-auto flex items-center justify-center gap-2">
+          <button
+            onClick={() => { setView('settings'); setIsMobileSidebarOpen(false); }}
+            className={`p-2.5 rounded-full transition-all ${view === 'settings' ? 'bg-primary/10 text-primary' : 'text-textMuted hover:bg-surfaceHighlight hover:text-primary'}`}
+            title="Settings"
+          >
+            <SettingsIcon size={20} />
+          </button>
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-2.5 rounded-full text-textMuted hover:bg-surfaceHighlight hover:text-primary transition-all"

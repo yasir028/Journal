@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { Trade, TradeType, TradeStatus, Playbook } from '../types';
 import { X, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Star, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
@@ -211,7 +212,7 @@ const TradeDetail: React.FC<TradeDetailProps> = ({ trade, trades, playbooks, onC
           {trade.notes && (
             <div className="mb-4">
               <p className="text-[10px] text-textMuted uppercase font-bold mb-2">Notes</p>
-              <div className="prose prose-sm prose-invert max-w-none bg-surfaceHighlight/10 p-3 rounded-lg border border-surfaceHighlight text-sm text-text" dangerouslySetInnerHTML={{ __html: trade.notes }} />
+              <div className="prose prose-sm prose-invert max-w-none bg-surfaceHighlight/10 p-3 rounded-lg border border-surfaceHighlight text-sm text-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(trade.notes) }} />
             </div>
           )}
         </div>

@@ -9,39 +9,46 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        /* Light Mode Colors */
+        /* Light Mode — professional financial palette */
         --bg: #f8fafc;
         --surface: #ffffff;
         --surface-highlight: #f1f5f9;
         --text: #0f172a;
         --text-muted: #64748b;
-        --primary: #3b82f6;
-        --accent: #8b5cf6;
-        --success: #22c55e;
-        --danger: #ef4444;
+        --primary: #2563eb;
+        --accent: #6366f1;
+        --success: #16a34a;
+        --danger: #dc2626;
         --border: #e2e8f0;
-        --sidebar-bg: #ede9f6;
+        --sidebar-bg: #0f172a;
+        --shadow-card: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
+        --shadow-modal: 0 20px 60px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.12);
       }
 
       .dark {
-        /* Dark Mode Colors — navy-purple palette */
-        --bg: #0d0b1a;
-        --surface: #1a1625;
-        --surface-highlight: #252136;
+        /* Dark Mode — navy-charcoal (Bloomberg-style) */
+        --bg: #0a0f1c;
+        --surface: #111827;
+        --surface-highlight: #1f2937;
         --text: #e2e8f0;
         --text-muted: #94a3b8;
         --primary: #3b82f6;
-        --accent: #8b5cf6;
+        --accent: #818cf8;
         --success: #22c55e;
         --danger: #ef4444;
-        --border: #332d4a;
-        --sidebar-bg: #1e1535;
+        --border: #374151;
+        --sidebar-bg: #0d1526;
+        --shadow-card: 0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+        --shadow-modal: 0 20px 60px rgba(0,0,0,.6), 0 4px 16px rgba(0,0,0,.4);
       }
 
       body {
         background-color: var(--bg);
         color: var(--text);
         transition: background-color 0.3s, color 0.3s;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-feature-settings: "tnum" 1; /* tabular numbers for financial data */
       }
 
       /* Dark mode date input styling */

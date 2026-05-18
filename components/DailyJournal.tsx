@@ -71,6 +71,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [showPreMarket, setShowPreMarket] = useState(true);
   const [reviewText, setReviewText] = useState('');
+  const [dailyTab, setDailyTab] = useState<'overview' | 'trades' | 'journal'>('overview');
 
   // Obsidian integration
   const [obsidianPreMarket, setObsidianPreMarket] = useState<string | null>(null);
@@ -361,132 +362,165 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
           </div>
         </div>
 
-        {/* Stats & Chart */}
-        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8 border-b border-surfaceHighlight">
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
-                <XAxis dataKey="time" hide />
-                <YAxis stroke="var(--text-muted)" fontSize={10} width={40} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }} 
-                  itemStyle={{ color: chartColor }}
-                />
-                <Area type="monotone" dataKey="pnl" stroke={chartColor} strokeWidth={2} fillOpacity={1} fill="url(#chartGradient)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="grid grid-cols-2 gap-y-6 gap-x-12">
-            <div><p className="text-xs text-textMuted mb-1">Winners</p><p className="text-lg font-bold text-text">{dayStats.winners}</p></div>
-            <div><p className="text-xs text-textMuted mb-1">Winrate</p><p className="text-lg font-bold text-text">{dayStats.winRate.toFixed(0)}%</p></div>
-            <div><p className="text-xs text-textMuted mb-1">Profit Factor</p><p className="text-lg font-bold text-text">{dayStats.profitFactor.toFixed(2)}</p></div>
-            <div><p className="text-xs text-textMuted mb-1">Gross P&L</p><p className="text-lg font-bold text-text">${dayStats.grossPnl.toFixed(0)}</p></div>
-          </div>
+        {/* TAB BAR */}
+        <div className="px-6 border-b border-surfaceHighlight flex gap-1 bg-surface sticky top-[73px] z-10">
+          {([
+            { id: 'overview', label: 'Overview' },
+            { id: 'trades',   label: `Trades (${todaysTrades.length})` },
+            { id: 'journal',  label: 'Journal' },
+          ] as const).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setDailyTab(tab.id)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                dailyTab === tab.id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-textMuted hover:text-text'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* TRADES LIST */}
-        <div className="px-6 py-4 border-b border-surfaceHighlight">
-          <div className="flex items-center gap-2 mb-4">
-            <Search size={16} className="text-textMuted" />
-            <span className="text-xs font-semibold text-textMuted uppercase tracking-wider">Trades for this day</span>
-          </div>
-          <div className="space-y-2">
-            {todaysTrades.length > 0 ? (
-              todaysTrades.map((trade) => (
-                <div
-                  key={trade.id}
-                  onClick={() => setSelectedTradeId(trade.id)}
-                  className="flex items-center justify-between p-3 bg-surface rounded-lg border border-surfaceHighlight hover:border-primary/50 cursor-pointer transition-all group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-1 h-8 rounded-full ${trade.type === 'LONG' ? 'bg-success' : 'bg-danger'}`} />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm">{trade.symbol}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${trade.type === 'LONG' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
-                          {trade.type}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-textMuted">{trade.entryTime}</span>
-                        {trade.setup && (
-                          <span className="text-[10px] text-textMuted bg-surfaceHighlight px-1.5 rounded">{trade.setup}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-bold ${trade.pnl && trade.pnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {trade.pnl && trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-[10px] text-textMuted">{trade.quantity} units</p>
-                  </div>
+        {/* ── OVERVIEW TAB ── */}
+        {dailyTab === 'overview' && (
+          <div className="p-6 space-y-6">
+            {/* KPI strip */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-surfaceHighlight rounded-xl overflow-hidden border border-surfaceHighlight">
+              {[
+                { label: 'Winners',       value: dayStats.winners, color: 'text-success' },
+                { label: 'Win Rate',      value: `${dayStats.winRate.toFixed(0)}%`, color: 'text-text' },
+                { label: 'Profit Factor', value: dayStats.profitFactor.toFixed(2), color: 'text-text' },
+                { label: 'Gross P&L',     value: `$${dayStats.grossPnl.toFixed(0)}`, color: dayStats.grossPnl >= 0 ? 'text-success' : 'text-danger' },
+              ].map(kpi => (
+                <div key={kpi.label} className="bg-surface p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-1">{kpi.label}</p>
+                  <p className={`text-xl font-bold font-mono ${kpi.color}`}>{kpi.value}</p>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-8 bg-surfaceHighlight/20 rounded-lg border border-dashed border-surfaceHighlight">
-                <p className="text-sm text-textMuted">No trades recorded for this date.</p>
-              </div>
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
 
-        {/* PRE-MARKET CONTEXT */}
-        {(obsidianPreMarket || dailyAnalysis[selectedDate]) && (
-          <div className="px-6 pt-6">
-            <div className="bg-accent/5 border border-accent/20 rounded-xl overflow-hidden">
-              <button
-                onClick={() => setShowPreMarket(!showPreMarket)}
-                className="w-full flex items-center justify-between p-3 bg-accent/10 hover:bg-accent/20 transition-colors"
-              >
-                <div className="flex items-center gap-2 text-sm font-bold text-accent">
-                  <BrainCircuit size={16} />
-                  Pre-Market Context
-                  {obsidianPreMarket && (
-                    <span className="text-[9px] px-1.5 py-0.5 bg-accent/20 rounded-full font-normal">
-                      from Obsidian
-                    </span>
-                  )}
-                </div>
-                {showPreMarket ? <ChevronUp size={16} className="text-accent"/> : <ChevronDown size={16} className="text-accent"/>}
-              </button>
-              {showPreMarket && (
-                <div
-                  className="p-4 text-sm text-text leading-relaxed border-t border-accent/10 prose prose-sm prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: obsidianPreMarket || dailyAnalysis[selectedDate] }}
-                />
-              )}
+            {/* Cumulative P&L chart */}
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--surface-highlight)" vertical={false} />
+                  <XAxis dataKey="time" hide />
+                  <YAxis stroke="var(--text-muted)" fontSize={10} width={40} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                    itemStyle={{ color: chartColor }}
+                  />
+                  <Area type="monotone" dataKey="pnl" stroke={chartColor} strokeWidth={2} fillOpacity={1} fill="url(#chartGradient)" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        {/* EDITOR AREA with SAVE BUTTON */}
-        <div className="flex-1 p-6 flex flex-col min-h-[500px]">
-          <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-semibold text-textMuted uppercase tracking-wider">End-of-Day Review</span>
-              <button 
-                onClick={handleManualSave}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary/90 transition-all active:scale-95 shadow-md shadow-primary/20"
-              >
-                <Save size={16} /> Save Review
-              </button>
+        {/* ── TRADES TAB ── */}
+        {dailyTab === 'trades' && (
+          <div className="px-6 py-5">
+            {todaysTrades.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-surfaceHighlight">
+                    <th className="text-left pb-2 text-[10px] font-semibold uppercase tracking-widest text-textMuted">Symbol</th>
+                    <th className="text-left pb-2 text-[10px] font-semibold uppercase tracking-widest text-textMuted">Side</th>
+                    <th className="text-left pb-2 text-[10px] font-semibold uppercase tracking-widest text-textMuted">Setup</th>
+                    <th className="text-left pb-2 text-[10px] font-semibold uppercase tracking-widest text-textMuted">Time</th>
+                    <th className="text-right pb-2 text-[10px] font-semibold uppercase tracking-widest text-textMuted">P&L</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surfaceHighlight/50">
+                  {todaysTrades.map((trade, i) => (
+                    <tr
+                      key={trade.id}
+                      onClick={() => setSelectedTradeId(trade.id)}
+                      className={`cursor-pointer hover:bg-surfaceHighlight/40 transition-colors ${i % 2 === 0 ? '' : 'bg-surfaceHighlight/20'}`}
+                    >
+                      <td className="py-3 pr-4">
+                        <span className="font-semibold text-text">{trade.symbol}</span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${trade.type === 'LONG' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                          {trade.type}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-textMuted text-xs">{trade.setup || '—'}</td>
+                      <td className="py-3 pr-4 text-textMuted text-xs font-mono">{trade.entryTime || '—'}</td>
+                      <td className="py-3 text-right">
+                        <span className={`font-bold font-mono ${(trade.pnl || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                          {(trade.pnl || 0) >= 0 ? '+' : ''}${trade.pnl?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ?? '—'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-center py-12 border border-dashed border-surfaceHighlight rounded-xl">
+                <p className="text-sm text-textMuted">No trades recorded for this date.</p>
+              </div>
+            )}
           </div>
+        )}
 
-          <RichTextEditor 
-            value={reviewText}
-            onChange={setReviewText}
-            placeholder="Log your daily lessons, wins, and areas for improvement..."
-            className="flex-1 min-h-[400px]"
-          />
-        </div>
+        {/* ── JOURNAL TAB ── */}
+        {dailyTab === 'journal' && (
+          <div className="p-6 space-y-6">
+            {/* Pre-Market Context */}
+            {(obsidianPreMarket || dailyAnalysis[selectedDate]) && (
+              <div className="bg-accent/5 border border-accent/20 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowPreMarket(!showPreMarket)}
+                  className="w-full flex items-center justify-between p-3 bg-accent/10 hover:bg-accent/20 transition-colors"
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold text-accent">
+                    <BrainCircuit size={16} />
+                    Pre-Market Plan
+                    {obsidianPreMarket && (
+                      <span className="text-[9px] px-1.5 py-0.5 bg-accent/20 rounded-full font-normal">from Obsidian</span>
+                    )}
+                  </div>
+                  {showPreMarket ? <ChevronUp size={16} className="text-accent"/> : <ChevronDown size={16} className="text-accent"/>}
+                </button>
+                {showPreMarket && (
+                  <div
+                    className="p-4 text-sm text-text leading-relaxed border-t border-accent/10 prose prose-sm prose-invert max-w-none"
+                    dangerouslySetInnerHTML={{ __html: obsidianPreMarket || dailyAnalysis[selectedDate] }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* End-of-Day Review */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-textMuted uppercase tracking-widest">End-of-Day Review</span>
+                <button
+                  onClick={handleManualSave}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition-all active:scale-95"
+                >
+                  <Save size={15} /> Save
+                </button>
+              </div>
+              <RichTextEditor
+                value={reviewText}
+                onChange={setReviewText}
+                placeholder="Log your daily lessons, wins, and areas for improvement..."
+                className="min-h-[400px]"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── REPORT MODAL ────────────────────────────────────────────────── */}
