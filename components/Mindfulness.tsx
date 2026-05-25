@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Zap, Book, Calendar, Plus, Save, CheckSquare, Moon, RefreshCw } from 'lucide-react';
 import { DailyAnalysis, DailyReview } from '../types';
 import { generateDailyAffirmation } from '../services/ollamaService';
