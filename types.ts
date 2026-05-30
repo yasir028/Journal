@@ -180,10 +180,12 @@ export interface PsychProfile {
 export interface CheckInSettings {
   requirePreTrade: boolean;
   checkInAfterLoss: boolean;
-  checkInStreak: number; // e.g., check in after 3 losses
-  dailyReflectionTime: string; // HH:MM (Existing field, can be used or we add specific one)
-  marketReviewEnabled: boolean; // New toggle
-  marketReviewTimes: string[]; // Array of times for market review
+  checkInStreak: number;
+  dailyReflectionTime: string;
+  marketReviewEnabled: boolean;
+  marketReviewTimes: string[];
+  rMode?: 'stop-loss' | 'fixed';
+  fixedRValue?: number;
 }
 
 export interface UserStats {

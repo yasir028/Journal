@@ -1,4 +1,29 @@
-# Logs
+# ── Personal data — never commit ─────────────────────────────────
+trader.db
+trader.db-shm
+trader.db-wal
+*.backup
+db.json.backup
+
+# ── Secrets ───────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Personal scripts with hardcoded paths ─────────────────────────
+*.bat
+*.cmd
+supabaseClient.js
+
+# ── Claude Code workspace files ───────────────────────────────────
+.claude/
+
+# ── Dependencies & build output ───────────────────────────────────
+node_modules
+dist
+dist-ssr
+
+# ── Logs ──────────────────────────────────────────────────────────
 logs
 *.log
 npm-debug.log*
@@ -7,12 +32,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# ── Editor ────────────────────────────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -22,11 +42,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.local
 
-node_modules
+# ── Legacy / unused ───────────────────────────────────────────────
 .next
-dist
-.env
-.env.local
-.DS_Store
 /generated/prisma

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckInSettings, Trade, TradeType, Playbook } from '../types';
-import { Save, Download, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X, FileUp, Eye, ArrowRight, RefreshCw, ChevronDown, FolderOpen } from 'lucide-react';
+import { Save, Download, CheckCircle, AlertCircle, Plus, Trash2, Book, Clock, X, FileUp, Eye, ArrowRight, RefreshCw, ChevronDown, FolderOpen, Target } from 'lucide-react';
 import { parseCSV, BrokerFormat } from '../services/brokerParsers';
 
 interface SettingsProps {
@@ -728,6 +728,45 @@ const Settings: React.FC<SettingsProps> = ({
               )}
             </div>
 
+          </div>
+
+          {/* R Mode */}
+          <div className="p-6 border-t border-surfaceHighlight">
+            <div className="flex items-start gap-3 mb-4">
+              <Target size={20} className="text-primary mt-1 shrink-0" />
+              <div>
+                <p className="text-text font-medium">Risk Multiple (R) Calculation</p>
+                <p className="text-xs text-textMuted mt-1">Choose how R is calculated across the app — stop-loss based (classic) or fixed dollar risk.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setSettings(prev => ({ ...prev, rMode: 'stop-loss' }))}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg border-2 transition-all ${(settings.rMode ?? 'stop-loss') === 'stop-loss' ? 'border-primary bg-primary/10 text-primary' : 'border-surfaceHighlight text-textMuted'}`}
+              >
+                Stop-Loss Based
+              </button>
+              <button
+                onClick={() => setSettings(prev => ({ ...prev, rMode: 'fixed' }))}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg border-2 transition-all ${settings.rMode === 'fixed' ? 'border-primary bg-primary/10 text-primary' : 'border-surfaceHighlight text-textMuted'}`}
+              >
+                Fixed Dollar
+              </button>
+            </div>
+            {settings.rMode === 'fixed' && (
+              <div className="flex items-center gap-3 bg-surfaceHighlight/20 rounded-lg p-4">
+                <span className="text-sm text-textMuted">Fixed risk per trade ($)</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={settings.fixedRValue ?? 100}
+                  onChange={e => setSettings(prev => ({ ...prev, fixedRValue: Math.max(1, parseFloat(e.target.value) || 100) }))}
+                  className="w-28 bg-background border border-surfaceHighlight rounded-lg px-3 py-1.5 text-sm text-text outline-none focus:border-primary text-right font-mono"
+                />
+                <span className="text-xs text-textMuted">= 1R</span>
+              </div>
+            )}
           </div>
 
           <div className="p-6 bg-surfaceHighlight/30 flex justify-end">

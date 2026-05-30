@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trade, DailyAnalysis, DailyReview, TradeStatus, Playbook } from '../types';
+import { Trade, DailyAnalysis, DailyReview, TradeStatus, Playbook, CheckInSettings } from '../types';
 import {
   FileText, Calendar, Search, Filter,
   MoreHorizontal, BrainCircuit, ChevronDown, ChevronUp, Save,
@@ -18,9 +18,13 @@ interface DailyJournalProps {
   onSaveReview: (date: string, text: string) => void;
   initialDate?: string;
   onNavigateToTrade?: (tradeId: string) => void;
+  userSettings?: CheckInSettings;
 }
 
-const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate }) => {
+const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dailyAnalysis, dailyReviews = {}, onSaveReview, initialDate, userSettings }) => {
+  const rMode = userSettings?.rMode ?? 'stop-loss';
+  const fixedRValue = userSettings?.fixedRValue ?? 100;
+  const effectiveR = (t: Trade) => rMode === 'fixed' ? (t.pnl || 0) / fixedRValue : (t.r || 0);
   // --- STATE ---
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
   const [tfCustomStart, setTfCustomStart] = useState('');
@@ -213,8 +217,9 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
     const grossLoss = Math.abs(dayTrades.filter(t => (t.pnl || 0) < 0).reduce((acc, t) => acc + (t.pnl || 0), 0));
     const profitFactor = grossLoss === 0 ? (grossPnl > 0 ? 100 : 0) : grossPnl / grossLoss;
     const volume = dayTrades.reduce((acc, t) => acc + t.quantity, 0);
+    const totalR = dayTrades.reduce((acc, t) => acc + effectiveR(t), 0);
 
-    return { totalTrades, winners, losers, netPnl, grossPnl, commissions, winRate, profitFactor, volume, trades: dayTrades };
+    return { totalTrades, winners, losers, netPnl, grossPnl, commissions, winRate, profitFactor, volume, totalR, trades: dayTrades };
   }, [todaysTrades]);
 
   const chartData = useMemo(() => {
@@ -387,12 +392,13 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
         {dailyTab === 'overview' && (
           <div className="p-6 space-y-6">
             {/* KPI strip */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-surfaceHighlight rounded-xl overflow-hidden border border-surfaceHighlight">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-surfaceHighlight rounded-xl overflow-hidden border border-surfaceHighlight">
               {[
                 { label: 'Winners',       value: dayStats.winners, color: 'text-success' },
                 { label: 'Win Rate',      value: `${dayStats.winRate.toFixed(0)}%`, color: 'text-text' },
                 { label: 'Profit Factor', value: dayStats.profitFactor.toFixed(2), color: 'text-text' },
                 { label: 'Gross P&L',     value: `$${dayStats.grossPnl.toFixed(0)}`, color: dayStats.grossPnl >= 0 ? 'text-success' : 'text-danger' },
+                { label: 'Total R',       value: `${dayStats.totalR >= 0 ? '+' : ''}${dayStats.totalR.toFixed(2)}R`, color: dayStats.totalR > 0 ? 'text-success' : dayStats.totalR < 0 ? 'text-danger' : 'text-textMuted' },
               ].map(kpi => (
                 <div key={kpi.label} className="bg-surface p-4">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-textMuted mb-1">{kpi.label}</p>
@@ -682,6 +688,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ trades, playbooks = [], dai
             playbooks={playbooks}
             onClose={() => setSelectedTradeId(null)}
             onNavigate={(id) => setSelectedTradeId(id)}
+            userSettings={userSettings}
           />
         );
       })()}

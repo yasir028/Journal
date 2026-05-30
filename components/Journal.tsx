@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trade, TradeType, TradeStatus, Emotion, DailyAnalysis, TradeHistoryItem, Playbook, DEFAULT_MISTAKES, Instrument, FUTURES_CONTRACTS, TradeExit } from '../types';
+import { Trade, TradeType, TradeStatus, Emotion, DailyAnalysis, TradeHistoryItem, Playbook, DEFAULT_MISTAKES, Instrument, FUTURES_CONTRACTS, TradeExit, CheckInSettings } from '../types';
 import { Plus, Filter, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Upload, X, CheckSquare, Square, Layers, LayoutList, BookOpen, Trash2, Eye, Pencil, History, RotateCcw, ArrowLeft, ChevronDown, ChevronRight, MessageSquare, AlertTriangle, Book, Target, ShieldAlert, Maximize2, FileText, ZoomIn, ZoomOut, Search, Tag, Hash, Mic, MicOff, Play, Pause, XCircle, Download, Star, Calendar as CalendarIcon, RefreshCw, Link2 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import TradeDetail from './TradeDetail';
@@ -25,9 +25,13 @@ interface JournalProps {
   autoOpenAddTrade?: boolean;
   onAddTradeOpened?: () => void;
   onRollTrade?: (trade: Trade, data: RollFormData) => void;
+  userSettings?: CheckInSettings;
 }
 
-const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened, onRollTrade }) => {
+const Journal: React.FC<JournalProps> = ({ trades, playbooks = [], dailyAnalysis = {}, onAddTrade, onUpdateTrade, onDeleteTrade, onUpdatePlaybooks, focusedTradeId, onClearFocus, initialFilters, autoOpenAddTrade, onAddTradeOpened, onRollTrade, userSettings }) => {
+  const rMode = userSettings?.rMode ?? 'stop-loss';
+  const fixedRValue = userSettings?.fixedRValue ?? 100;
+  const effectiveR = (t: Trade) => rMode === 'fixed' ? (t.pnl || 0) / fixedRValue : (t.r || 0);
   const [timeframe, setTimeframe] = useState<'MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd]   = useState('');
@@ -1038,6 +1042,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                 <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-right`}>Entry</th>
                 <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-right`}>Exit</th>
                 <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-right`}>P&L</th>
+                <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-right`}>R</th>
                 <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-center`}>Status</th>
                 <th className={`${isCompact ? 'px-3 py-2' : 'px-4 py-3'} text-center`}>Actions</th>
               </tr>
@@ -1095,7 +1100,16 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
                        trade.status === TradeStatus.ROLLED ? ((trade as any).rollCredit != null ? `${(trade as any).rollCredit >= 0 ? '+' : ''}${(trade as any).rollCredit.toFixed(2)}` : '-') :
                        (trade.pnl ? (isWin ? '+' : '') + trade.pnl.toFixed(2) : '-')}
                     </td>
-                    
+
+                    <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-right font-data font-medium ${
+                      trade.status !== TradeStatus.CLOSED ? 'text-textMuted' :
+                      effectiveR(trade) > 0 ? 'text-success' : effectiveR(trade) < 0 ? 'text-danger' : 'text-textMuted'
+                    }`}>
+                      {trade.status === TradeStatus.CLOSED
+                        ? `${effectiveR(trade) >= 0 ? '+' : ''}${effectiveR(trade).toFixed(2)}R`
+                        : '-'}
+                    </td>
+
                     <td className={`${isCompact ? 'px-3 py-2' : 'px-4 py-4'} text-center`}>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase ${
                         trade.status === TradeStatus.OPEN   ? 'bg-blue-500/10 text-blue-400' :
@@ -1373,6 +1387,7 @@ const populateForm = (trade: Trade | TradeHistoryItem) => {
             playbooks={playbooks}
             onClose={() => setDetailTradeId(null)}
             onNavigate={(id) => setDetailTradeId(id)}
+            userSettings={userSettings}
           />
         );
       })()}

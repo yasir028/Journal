@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
-import { Trade, TradeStatus, Playbook, RuleCheck, Rule, RuleSettings } from '../types';
+import { Trade, TradeStatus, Playbook, RuleCheck, Rule, RuleSettings, CheckInSettings } from '../types';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Info, Calendar as CalendarIcon, BarChart2, AlertTriangle, Plus } from 'lucide-react';
 import TradeDetail from './TradeDetail';
 
@@ -11,6 +11,7 @@ interface DashboardProps {
   ruleChecks?: RuleCheck[];
   rules?: Rule[];
   ruleSettings?: RuleSettings;
+  userSettings?: CheckInSettings;
   onNavigateToJournal?: (date: string) => void;
   onNavigateToRules?: () => void;
   onFilterTrades?: (type: 'symbol' | 'setup' | 'playbook' | 'emotion' | 'mistake', value: string) => void;
@@ -28,7 +29,10 @@ const MiniDonut: React.FC<{ value: number; max?: number; color: string; size?: n
   );
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleChecks = [], rules = [], ruleSettings, onNavigateToJournal, onNavigateToRules, onFilterTrades }) => {
+const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleChecks = [], rules = [], ruleSettings, userSettings, onNavigateToJournal, onNavigateToRules, onFilterTrades }) => {
+  const rMode = userSettings?.rMode ?? 'stop-loss';
+  const fixedRValue = userSettings?.fixedRValue ?? 100;
+  const effectiveR = (t: Trade) => rMode === 'fixed' ? (t.pnl || 0) / fixedRValue : (t.r || 0);
   // --- STATE ---
   const [viewDate, setViewDate] = useState(() => {
     if (trades.length > 0) {
@@ -89,7 +93,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
     const wins = filteredTrades.filter(t => (t.pnl || 0) > 0).length;
     const losses = filteredTrades.filter(t => (t.pnl || 0) <= 0).length;
     const totalPnl = filteredTrades.reduce((acc, t) => acc + (t.pnl || 0), 0);
-    const totalR = filteredTrades.reduce((acc, t) => acc + (t.r || 0), 0);
+    const totalR = filteredTrades.reduce((acc, t) => acc + effectiveR(t), 0);
     const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
 
     const grossProfit = filteredTrades.filter(t => (t.pnl || 0) > 0).reduce((acc, t) => acc + (t.pnl || 0), 0);
@@ -461,7 +465,7 @@ const Dashboard: React.FC<DashboardProps> = ({ trades, playbooks = [], ruleCheck
             <p className={`text-2xl font-bold font-data ${stats.totalR >= 0 ? 'text-success' : 'text-danger'}`}>
               {stats.totalR >= 0 ? '+' : ''}{stats.totalR.toFixed(1)}R
             </p>
-            <p className="text-[10px] text-textMuted mt-1">risk multiples</p>
+            <p className="text-[10px] text-textMuted mt-1">{rMode === 'fixed' ? `fixed $${fixedRValue}/R` : 'stop-loss based'}</p>
           </div>
 
         </div>

@@ -66,13 +66,12 @@ const App: React.FC = () => {
   // Settings & Analysis
   const [dailyAnalysis, setDailyAnalysis] = useState<DailyAnalysis>({});
   const [dailyReviews, setDailyReviews] = useState<DailyReview>({});
-  const [userSettings, setUserSettings] = useState<CheckInSettings>({
-    requirePreTrade: true,
-    checkInAfterLoss: true,
-    checkInStreak: 2,
-    dailyReflectionTime: '17:00',
-    marketReviewEnabled: false,
-    marketReviewTimes: ['16:00']
+  const [userSettings, setUserSettings] = useState<CheckInSettings>(() => {
+    try {
+      const stored = localStorage.getItem('mindful_settings');
+      if (stored) return { requirePreTrade: true, checkInAfterLoss: true, checkInStreak: 2, dailyReflectionTime: '17:00', marketReviewEnabled: false, marketReviewTimes: ['16:00'], ...JSON.parse(stored) };
+    } catch {}
+    return { requirePreTrade: true, checkInAfterLoss: true, checkInStreak: 2, dailyReflectionTime: '17:00', marketReviewEnabled: false, marketReviewTimes: ['16:00'] };
   });
 
   const [journalFilters, setJournalFilters] = useState<{
@@ -856,7 +855,7 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-bold text-text capitalize">{view === 'rules' ? 'Progress Tracker' : view.replace('_', ' ')}</h1>
          </header>
 
-         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} ruleChecks={ruleChecks} rules={rules} ruleSettings={ruleSettings} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onNavigateToRules={() => setView('analytics')} onFilterTrades={handleFilterTrades} />}
+         {view === 'dashboard' && <Dashboard trades={activeTrades} playbooks={playbooks} ruleChecks={ruleChecks} rules={rules} ruleSettings={ruleSettings} userSettings={userSettings} onNavigateToJournal={(d) => { setJournalDate(d); setView('daily_journal'); }} onNavigateToRules={() => setView('analytics')} onFilterTrades={handleFilterTrades} />}
          
          {view === 'analytics' && (
            <Analytics
@@ -892,12 +891,13 @@ const App: React.FC = () => {
               dailyReviews={dailyReviews}
               onSaveReview={handleSaveDailyReview}
               initialDate={journalDate}
+              userSettings={userSettings}
             />
          )}
 
          {view === 'notebook' && <Notebook trades={activeTrades} dailyAnalysis={dailyAnalysis} dailyReviews={dailyReviews} notes={notes} onSaveDailyReview={handleSaveDailyReview} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} initialDate={journalDate} onNavigateToTrade={(id) => { setFocusedTradeId(id); setView('journal'); }} />}
          
-         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} onRollTrade={handleRollTrade} />}
+         {view === 'journal' && <Journal trades={activeTrades} playbooks={playbooks} dailyAnalysis={dailyAnalysis} onAddTrade={handleAddTrade} onUpdateTrade={handleUpdateTrade} onDeleteTrade={handleDeleteTrade} onUpdatePlaybooks={handleUpdatePlaybooks} focusedTradeId={focusedTradeId} onClearFocus={() => setFocusedTradeId(null)} initialFilters={journalFilters} autoOpenAddTrade={triggerAddTrade} onAddTradeOpened={() => setTriggerAddTrade(false)} onRollTrade={handleRollTrade} userSettings={userSettings} />}
          
          {view === 'calendar' && (
            <PnLCalendar
@@ -939,7 +939,7 @@ const App: React.FC = () => {
             />
           )}
          
-         {view === 'settings' && <Settings trades={activeTrades} playbooks={playbooks} onUpdatePlaybooks={handleUpdatePlaybooks} onImportTrades={handleImportTrades} onBatchImport={handleBatchImport} initialSettings={userSettings} onUpdateSettings={setUserSettings} />}
+         {view === 'settings' && <Settings trades={activeTrades} playbooks={playbooks} onUpdatePlaybooks={handleUpdatePlaybooks} onImportTrades={handleImportTrades} onBatchImport={handleBatchImport} initialSettings={userSettings} onUpdateSettings={(s) => { setUserSettings(s); localStorage.setItem('mindful_settings', JSON.stringify(s)); }} />}
       </main>
     </div>
   );

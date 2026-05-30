@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import DOMPurify from 'dompurify';
-import { Trade, TradeType, TradeStatus, Playbook } from '../types';
+import { Trade, TradeType, TradeStatus, Playbook, CheckInSettings } from '../types';
 import { X, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Image as ImageIcon, Star, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 interface TradeDetailProps {
   trade: Trade;
-  trades: Trade[]; // filteredTrades array to navigate through
+  trades: Trade[];
   playbooks: Playbook[];
   onClose: () => void;
   onNavigate: (tradeId: string) => void;
+  userSettings?: CheckInSettings;
 }
 
-const TradeDetail: React.FC<TradeDetailProps> = ({ trade, trades, playbooks, onClose, onNavigate }) => {
+const TradeDetail: React.FC<TradeDetailProps> = ({ trade, trades, playbooks, onClose, onNavigate, userSettings }) => {
+  const rMode = userSettings?.rMode ?? 'stop-loss';
+  const fixedRValue = userSettings?.fixedRValue ?? 100;
+  const displayR = rMode === 'fixed'
+    ? (trade.pnl != null ? parseFloat((trade.pnl / fixedRValue).toFixed(2)) : undefined)
+    : trade.r;
   const [zoom, setZoom] = useState(100);
 
   const currentIndex = trades.findIndex(t => t.id === trade.id);
@@ -125,7 +131,7 @@ const TradeDetail: React.FC<TradeDetailProps> = ({ trade, trades, playbooks, onC
               {trade.pnl !== undefined ? `${isWin ? '+' : ''}$${trade.pnl.toFixed(2)}` : 'Open'}
             </p>
             <div className="flex gap-4 mt-2 text-xs text-textMuted">
-              {trade.r !== undefined && <span>R-Value: <span className="text-text font-bold">{trade.r}R</span></span>}
+              {displayR !== undefined && <span>R-Value: <span className="text-text font-bold">{displayR}R</span>{rMode === 'fixed' && <span className="text-textMuted font-normal"> (fixed ${fixedRValue})</span>}</span>}
               {trade.fees !== undefined && trade.fees > 0 && <span>Fees: <span className="text-text">${trade.fees.toFixed(2)}</span></span>}
             </div>
           </div>

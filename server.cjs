@@ -510,25 +510,37 @@ app.delete('/notes/:id', (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // ── Helper: call Ollama chat endpoint ───────────────────────────
-async function callOllama(messages, maxTokens = 2000, opts = {}) {
+async function callOllama(messages, maxTokens = 600, opts = {}) {
   const temp = opts.temperature ?? 0.7;
   const topP = opts.top_p ?? 0.9;
+  const timeoutMs = opts.timeoutMs ?? 90000; // 90s hard limit
   console.log(`[ollama] → ${OLLAMA_MODEL} | messages: ${messages.length} | maxTokens: ${maxTokens} | temp: ${temp}`);
 
-  const res = await fetch(OLLAMA_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      stream: false,
-      options: {
-        num_predict: maxTokens,
-        temperature: temp,
-        top_p: topP,
-      },
-      messages,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res;
+  try {
+    res = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        stream: false,
+        think: false, // disable chain-of-thought; gemma4 uses all tokens for thinking otherwise
+        options: {
+          num_predict: maxTokens,
+          num_ctx: 8192, // default 2048 overflows with stats+context prompt
+          temperature: temp,
+          top_p: topP,
+        },
+        messages,
+      }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
 
@@ -768,26 +780,19 @@ function classifyQuestion(message) {
 
 const TIER_CONFIG = {
   factual: {
-    maxTokens: 150,
+    maxTokens: 100,
     includeContext: false,
-    instruction: 'Answer in 1-2 sentences. Give only the number or fact asked. No headers, no bullet points, no extra commentary.',
+    instruction: 'Answer in one short sentence or just the number/percentage. No headers, no bullet points.',
   },
   comparative: {
-    maxTokens: 600,
+    maxTokens: 250,
     includeContext: false,
-    instruction: 'Give a concise structured breakdown. Use bullet points or a short table. No lengthy narrative. Stay focused on the comparison requested.',
+    instruction: 'Give a concise answer using 3-5 bullet points. No lengthy narrative.',
   },
   deep: {
-    maxTokens: 2000,
+    maxTokens: 300,
     includeContext: true,
-    instruction: [
-      'Give a detailed analysis using this framework:',
-      '1. What the data shows — cite specific numbers',
-      '2. Patterns — correlations between emotions, setups, day of week',
-      '3. Edge vs. leak — what\'s working vs. what\'s costing money',
-      '4. Actionable next step — one concrete thing to do differently',
-      'Use ## headers and **bold** for key numbers.',
-    ].join(' '),
+    instruction: 'In 3-4 bullet points, identify the biggest issue, the key pattern, and one concrete action. Be specific with numbers. No headers or lengthy paragraphs.',
   },
 };
 
